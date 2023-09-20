@@ -6,6 +6,7 @@ import numpy as np
 import _pickle as cPickle
 from PIL import Image
 from scipy.spatial.transform import Rotation as R
+import time
 
 import torch
 from torch.utils.data import Dataset
@@ -45,6 +46,8 @@ class TrainingDataset(Dataset):
         self.syn_intrinsics = [577.5, 577.5, 319.5, 239.5]
         self.syn_img_list = [os.path.join(syn_img_path.split('/')[0], line.rstrip('\n'))
                         for line in open(os.path.join(self.data_dir, syn_img_path))]
+        #self.syn_img_list = []#CHANGE THIS
+        #import pdb;pdb.set_trace()
         print('{} synthetic images are found.'.format(len(self.syn_img_list)))
 
         if self.dataset == 'REAL275':
@@ -78,6 +81,7 @@ class TrainingDataset(Dataset):
             num_syn_img = len(self.syn_img_list)
             num_syn_img, num_real_img = len(self.syn_img_list), len(self.real_img_list)
             num_syn_img_per_epoch = int(self.num_img_per_epoch*0.75)
+            #num_syn_img_per_epoch = 0 #CHANGE THIS
             num_real_img_per_epoch = self.num_img_per_epoch - num_syn_img_per_epoch
 
             if num_syn_img <= num_syn_img_per_epoch:
@@ -100,13 +104,15 @@ class TrainingDataset(Dataset):
             else:
                 syn_img_index = np.random.choice(num_syn_img, num_syn_img_per_epoch, replace=False)
             self.img_index = syn_img_index
-
+        #import pdb;pdb.set_trace()
+        
         np.random.shuffle(self.img_index)
 
     def __getitem__(self, index):
         while True:
             image_index = self.img_index[index]
             data_dict = self._read_data(image_index)
+            #print('READ DATA',index,"/",self.__len__(),time.time()-st)
             if data_dict is None:
                 index = np.random.randint(self.__len__())
                 continue
@@ -126,12 +132,14 @@ class TrainingDataset(Dataset):
         if self.dataset == 'REAL275':
             depth = load_composed_depth(img_path)
             depth = fill_missing(depth, self.norm_scale, 1)
+            #print("FILL MISSING", img_path, time.time()-st)
         else:
             depth = load_depth(img_path)
 
         # mask
         with open(img_path + '_label.pkl', 'rb') as f:
             gts = cPickle.load(f)
+        #print("READ MASK:",img_path,time.time()-st)
         num_instance = len(gts['instance_ids'])
         assert(len(gts['class_ids'])==len(gts['instance_ids']))
         mask = cv2.imread(img_path + '_mask.png')[:, :, 2] #480*640
@@ -264,10 +272,11 @@ class TestDataset():
         self.data_dir = config.data_dir
         self.sample_num = config.sample_num
 
-        result_pkl_list = glob.glob(os.path.join(self.data_dir, 'segmentation_results', dataset, 'results_*.pkl'))
+        result_pkl_list = glob.glob(os.path.join(self.data_dir, 'detection', dataset, 'results_*.pkl'))
         self.result_pkl_list = sorted(result_pkl_list)
         n_image = len(result_pkl_list)
         print('no. of test images: {}\n'.format(n_image))
+
 
         self.xmap = np.array([[i for i in range(640)] for j in range(480)])
         self.ymap = np.array([[j for i in range(640)] for j in range(480)])
