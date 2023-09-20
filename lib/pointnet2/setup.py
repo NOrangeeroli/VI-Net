@@ -11,8 +11,9 @@ _ext_src_root = "_ext_src"
 _ext_sources = glob.glob("{}/src/*.cpp".format(_ext_src_root)) + glob.glob(
     "{}/src/*.cu".format(_ext_src_root)
 )
-_ext_headers = glob.glob("{}/include/*".format(_ext_src_root))
 
+_ext_headers = glob.glob("{}/include/*".format(_ext_src_root))
+headers = "-I" + os.path.join(os.path.dirname(os.path.abspath(__file__)), '_ext_src', 'include')
 setup(
     name='pointnet2',
     packages = find_packages(),
@@ -24,13 +25,14 @@ setup(
             extra_compile_args={
                 # "cxx": ["-O2", "-I{}".format("{}/include".format(_ext_src_root))],
                 # "nvcc": ["-O2", "-I{}".format("{}/include".format(_ext_src_root))],
-                "cxx": [],
-                "nvcc": ["-O3", 
+                "cxx": [headers],
+                "nvcc": ["-O3",headers, 
                 "-DCUDA_HAS_FP16=1",
                 "-D__CUDA_NO_HALF_OPERATORS__",
                 "-D__CUDA_NO_HALF_CONVERSIONS__",
                 "-D__CUDA_NO_HALF2_OPERATORS__",
             ]},)
     ],
-    cmdclass={'build_ext': BuildExtension.with_options(use_ninja=True)}
+    cmdclass={'build_ext': BuildExtension}
+
 )
