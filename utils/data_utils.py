@@ -4,7 +4,7 @@ import cv2
 import cmath
 import numpy as np
 import collections
-
+import time
 def load_depth(img_path):
     """ Load depth image from img_path. """
     depth_path = img_path + '_depth.png'
