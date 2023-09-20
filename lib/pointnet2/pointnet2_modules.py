@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_utils
 
-from pointnet2 import pointnet2_utils
+import pointnet2_utils
 
 # import ipdb
 

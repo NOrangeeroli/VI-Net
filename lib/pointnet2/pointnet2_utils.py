@@ -15,7 +15,8 @@ import torch
 from torch.autograd import Function
 import torch.nn as nn
 import pytorch_utils as pt_utils
-import sys
+import sys,os
+BASE_DIR=os.path.dirname(os.path.abspath(__file__))
 
 try:
     import builtins
