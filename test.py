@@ -11,7 +11,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, 'provider'))
 sys.path.append(os.path.join(BASE_DIR, 'model'))
 sys.path.append(os.path.join(BASE_DIR, 'utils'))
-sys.path.append(os.path.join(BASE_DIR, 'lib'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'sphericalmap_utils'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'pointnet2'))
 
