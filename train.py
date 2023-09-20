@@ -11,7 +11,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, 'provider'))
 sys.path.append(os.path.join(BASE_DIR, 'model'))
 sys.path.append(os.path.join(BASE_DIR, 'utils'))
-sys.path.append(os.path.join(BASE_DIR, 'lib'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'sphericalmap_utils'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'pointnet2'))
 
@@ -35,7 +34,7 @@ def get_parser():
                         type=str,
                         default="REAL275",
                         help="[REAL275 | CAMERA25]")
-    parser.add_argument("--mode",
+    parser.add_argument("--mod",
                         type=str,
                         default="r",
                         help="[r|ts]")
@@ -52,12 +51,12 @@ def init():
     args = get_parser()
     cfg = gorilla.Config.fromfile(args.config)
     cfg.dataset = args.dataset
-    cfg.mode = args.mode
+    cfg.mod = args.mod
     cfg.gpus = args.gpus
     cfg.checkpoint_epoch = args.checkpoint_epoch
-    if cfg.mode == 'ts':
+    if cfg.mod == 'ts':
         cfg.log_dir = os.path.join('log', args.dataset, 'PN2')
-    elif cfg.mode == 'r':
+    elif cfg.mod == 'r':
         cfg.log_dir = os.path.join('log', args.dataset, 'VI_Net')
     else:
         assert False, 'Wrong mode'
@@ -92,7 +91,7 @@ if __name__ == "__main__":
 
     # model
     logger.info("=> creating model ...")
-    if cfg.mode == 'r':
+    if cfg.mod == 'r':
         from VI_Net import Net, Loss
         model = Net(cfg.resolution, cfg.ds_rate)
 
@@ -107,12 +106,12 @@ if __name__ == "__main__":
 
     # loss
     loss = Loss(cfg.loss).cuda()    
-
+    # import pdb;pdb.set_trace()
     # dataloader
     dataset = TrainingDataset(
         cfg.train_dataset,
         cfg.dataset,
-        cfg.mode,
+        cfg.mod,
         resolution = cfg.resolution,
         ds_rate = cfg.ds_rate,
         num_img_per_epoch=cfg.num_mini_batch_per_epoch*cfg.train_dataloader.bs)
