@@ -17,8 +17,8 @@ class Solver(gorilla.solver.BaseSolver):
             logger=logger,
         )
         self.loss = loss
-        self.logger.propagate = 0
-
+        self.logger = logger
+        
         tb_writer_ = tools_writer(
             dir_project=cfg.log_dir, num_counter=2, get_sum=False)
         tb_writer_.writer = self.tb_writer
@@ -42,9 +42,9 @@ class Solver(gorilla.solver.BaseSolver):
 
 
     def solve(self):
+        
         while self.epoch <= self.cfg.max_epoch:
             self.logger.info('\nEpoch {} :'.format(self.epoch))
-
             end = time.time()
             dict_info_train = self.train()
             train_time = time.time()-end
@@ -53,9 +53,10 @@ class Solver(gorilla.solver.BaseSolver):
             for key, value in dict_info_train.items():
                 if 'loss' in key:
                     dict_info['train_'+key] = value
-
+            
+            epoch = self.epoch
             ckpt_path = os.path.join(
-                self.cfg.log_dir, 'epoch_0.pth')
+                self.cfg.log_dir, f'epoch_{epoch}.pth')
             gorilla.solver.save_checkpoint(
                 model=self.model, filename=ckpt_path, optimizer=self.optimizer, scheduler=self.lr_scheduler, meta={'iter': self.iter, "epoch": self.epoch})
 
@@ -63,15 +64,15 @@ class Solver(gorilla.solver.BaseSolver):
             write_info = self.get_logger_info(prefix, dict_info=dict_info)
             self.logger.warning(write_info)
             self.epoch += 1
+            
 
     def train(self):
         mode = 'train'
         self.model.train()
         end = time.time()
         self.dataloaders["train"].dataset.reset()
-
+        
         for i, data in enumerate(self.dataloaders["train"]):
-
             data_time = time.time()-end
 
             self.optimizer.zero_grad()
@@ -98,6 +99,7 @@ class Solver(gorilla.solver.BaseSolver):
                     prefix, dict_info=self.log_buffer._output)
                 self.logger.info(write_info)
                 self.write_summary(self.log_buffer._output, mode)
+            
             end = time.time()
 
             if self.lr_scheduler is not None:
