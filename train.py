@@ -15,7 +15,7 @@ sys.path.append(os.path.join(BASE_DIR, 'lib', 'sphericalmap_utils'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'pointnet2'))
 
 from solver import Solver, get_logger
-from dataset import TrainingDataset
+from dataset_pair import TrainingDataset
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -58,6 +58,8 @@ def init():
         cfg.log_dir = os.path.join('log', args.dataset, 'PN2')
     elif cfg.mod == 'r':
         cfg.log_dir = os.path.join('log', args.dataset, 'VI_Net')
+    elif cfg.mod == 'sim':
+        cfg.log_dir = os.path.join('log', args.dataset, 'SIM_Net')
     else:
         assert False, 'Wrong mode'
 
@@ -92,12 +94,15 @@ if __name__ == "__main__":
     # model
     logger.info("=> creating model ...")
     if cfg.mod == 'r':
-        from VI_Net import Net, Loss
+        from VI_Net_pair import Net, Loss
         model = Net(cfg.resolution, cfg.ds_rate)
 
-    else:
+    elif cfg.mod == 'ts':
         from PN2 import Net, Loss
         model = Net(cfg.n_cls)
+    elif cfg.mod == 'sim':
+        from SIM_Net import Net, Loss
+        model = Net(cfg.resolution, cfg.ds_rate)
     if len(cfg.gpus) > 1:
         model = torch.nn.DataParallel(model, range(len(cfg.gpus.split(","))))
     model = model.cuda()

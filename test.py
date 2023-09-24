@@ -15,7 +15,7 @@ sys.path.append(os.path.join(BASE_DIR, 'lib', 'sphericalmap_utils'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'pointnet2'))
 
 from solver import test_func, get_logger
-from dataset import TestDataset
+from dataset_pair import TestDataset
 from evaluation_utils import evaluate
 
 def get_parser():
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     logger.info("=> loading model ...")
     from PN2 import Net
     ts_model = Net(cfg.n_cls)
-    from VI_Net import Net
+    from VI_Net_pair import Net
     r_model = Net(cfg.resolution, cfg.ds_rate)
     if len(cfg.gpus)>1:
         ts_model = torch.nn.DataParallel(ts_model, range(len(cfg.gpus.split(","))))

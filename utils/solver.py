@@ -74,7 +74,7 @@ class Solver(gorilla.solver.BaseSolver):
         
         for i, data in enumerate(self.dataloaders["train"]):
             data_time = time.time()-end
-
+            
             self.optimizer.zero_grad()
             loss, dict_info_step = self.step(data, mode)
             forward_time = time.time()-end-data_time
@@ -215,9 +215,18 @@ def test_func(ts_model, r_model, dataloder, save_path):
 
                 pts = (inputs['pts'] - pred_translation.unsqueeze(1))/ (pred_scale + 1e-8).unsqueeze(2)
                 inputs['pts'] = pts.detach()
+                reference_pts = data['reference_pts'][0].cuda()
+                reference_rgb = data['reference_rgb'][0].cuda()
+                import pdb;pdb.set_trace()
+                inputs['pts'] = torch.stack([inputs['pts'], reference_pts],dim = 1).float()
+
+                inputs['rgb'] = torch.stack([inputs['rgb'], reference_rgb],dim = 1).float()
 
                 end_points = r_model(inputs)
                 pred_rotation = end_points['pred_rotation'][:,:,(1,2,0)]
+                pred_rotation = pred_rotation@data['reference_rotation'][0].cuda().float()
+                dets = pred_rotation.det()
+                assert torch.allclose(dets, torch.ones_like(dets))
 
 
                 pred_size = pred_size / pred_scale
@@ -249,7 +258,7 @@ def test_func(ts_model, r_model, dataloder, save_path):
                     data = cPickle.load(f)
                 image_path = data['image_path'][5:]
                 image_path = os.path.join(
-                    '/cluster/public_datasets/SemGroup/NOCS', image_path)
+                    '/media/student/Data/yamei/data/NOCS/', image_path)
                 image_path_parsing = image_path.split('/')
 
                 # rgb
