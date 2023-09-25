@@ -62,6 +62,40 @@ class Net(nn.Module):
 
         return cos
 
+# class Net(nn.Module):
+#     def __init__(self, resolution=64, ds_rate=2):
+#         super(Net, self).__init__()
+#         self.res = resolution
+#         self.ds_rate = ds_rate
+#         self.backbone = _Net(resolution, ds_rate)
+        
+
+#         self.offset = nn.Parameter(torch.tensor(-0.2, requires_grad=True))
+        
+
+        # self.mlp = nn.Sequential(
+        #     nn.Linear(256*2, 512, bias=False),
+        #     nn.BatchNorm1d(512),
+        #     nn.ReLU(),
+        #     nn.Linear(512, 256, bias=False),
+        #     nn.BatchNorm1d(256),
+        #     nn.ReLU(),
+        #     nn.Linear(256, 1),
+        # )
+
+    # def forward(self, inputs):
+        
+
+
+    #     cos = self.backbone(inputs)
+    #     cos = cos + self.offset
+
+
+
+
+    #     return cos, self.offset
+
+
 
 class Loss(nn.Module):
     def __init__(self, cfg):
@@ -72,6 +106,8 @@ class Loss(nn.Module):
         
 
     def forward(self, pred, gt):
+        # pred, offset = pred
+        # pred = pred.reshape(-1)
         gt['cos'] = gt['cos'].reshape(-1)
         assert gt['cos'].shape == pred.shape
         angle_loss = self.l1loss(pred, gt['cos'])

@@ -139,6 +139,7 @@ class TrainingDataset(Dataset):
             
             np.random.shuffle(self.img_index)
         elif self.mode in ['r', 'sim']:
+            import pdb;pdb.set_trace()
             
 
             if self.dataset == 'REAL275':
@@ -151,14 +152,14 @@ class TrainingDataset(Dataset):
                                         for cat in self.syn_category_dict.keys()}
                 syn_category_sample_num = {cat: int(num_syn_instance_per_epoch*syn_category_ratio[cat]) * 2 
                                             for cat in syn_category_ratio.keys()}
-                syn_instance_index_dict = {cat: choice(syn_category_num_dict[cat], syn_category_sample_num[cat]).reshape(-1,2) 
+                syn_instance_index_dict = {cat: choice(syn_category_num_dict[cat], syn_category_sample_num[cat]) 
                                     for cat in self.syn_category_dict.keys()}
-                syn_instance_index = np.concatenate(
-                        [np.concatenate(
-                        (syn_instance_index_dict[cat], np.array([[int(cat)]*syn_instance_index_dict[cat].shape[0]]).T) ,axis = 1)
-                                        for cat in syn_instance_index_dict.keys()],axis = 0
-                    )
-                self.instance_index = syn_instance_index
+                # syn_instance_index = np.concatenate(
+                #         [np.concatenate(
+                #         (syn_instance_index_dict[cat], np.array([[int(cat)]*syn_instance_index_dict[cat].shape[0]]).T) ,axis = 1)
+                #                         for cat in syn_instance_index_dict.keys()],axis = 0
+                #     )
+                # self.instance_index = syn_instance_index
                 
                 real_category_num_dict = {cat: len(self.real_category_dict[cat]) 
                                          for cat in self.real_category_dict.keys()}
@@ -172,16 +173,25 @@ class TrainingDataset(Dataset):
                 real_category_sample_num = {cat: int(num_real_instance_per_epoch* real_category_ratio[cat]) * 2 
                                            for cat in real_category_ratio.keys()}
                 
-                real_instance_index_dict = {cat: choice(real_category_num_dict[cat], real_category_sample_num[cat]).reshape(-1,2)
+                real_instance_index_dict = {cat: - choice(real_category_num_dict[cat], real_category_sample_num[cat])-1
                                  for cat in self.real_category_dict.keys()}
 
-                real_instance_index = np.concatenate(
-                    [np.concatenate(
-                    (-real_instance_index_dict[cat] - 1, np.array([[int(cat)]*real_instance_index_dict[cat].shape[0]]).T) ,axis = 1)
-                                      for cat in real_instance_index_dict.keys()],axis = 0
-                )
+                instance_index_dict = {cat: np.concatenate([real_instance_index_dict[cat], syn_instance_index_dict[cat]]) for cat in real_instance_index_dict.keys()}
+                for cat in instance_index_dict.keys():
+                    np.random.shuffle(instance_index_dict[cat])
+                instance_index_dict = {cat: instance_index_dict[cat].reshape(-1,2) for cat in instance_index_dict.keys()}
+                # real_instance_index = np.concatenate(
+                #     [np.concatenate(
+                #     (-real_instance_index_dict[cat] - 1, np.array([[int(cat)]*real_instance_index_dict[cat].shape[0]]).T) ,axis = 1)
+                #                       for cat in real_instance_index_dict.keys()],axis = 0
+                # )
                 
-                self.instance_index = np.vstack([syn_instance_index, real_instance_index])
+                # self.instance_index = np.vstack([syn_instance_index, real_instance_index])
+                self.instance_index = np.concatenate(
+                    [np.concatenate(
+                    (instance_index_dict[cat] , np.array([[int(cat)]*instance_index_dict[cat].shape[0]]).T) ,axis = 1)
+                                      for cat in instance_index_dict.keys()],axis = 0
+                )
         
             else:
                 num_instance_per_epoch = self.num_img_per_epoch
@@ -193,7 +203,7 @@ class TrainingDataset(Dataset):
                                         for cat in self.syn_category_dict.keys()}
                 syn_category_sample_num = {cat: int(num_syn_instance_per_epoch*syn_category_ratio[cat]) * 2 
                                             for cat in syn_category_ratio.keys()}
-                syn_instance_index_dict = {cat: choice(syn_category_num_dict[cat], syn_category_sample_num[cat]).reshape(-1,2) 
+                syn_instance_index_dict = {cat: choice(syn_category_num_dict[cat], syn_category_sample_num[cat]).reshape(-1,2)
                                     for cat in self.syn_category_dict.keys()}
                 syn_instance_index = np.concatenate(
                         [np.concatenate(
@@ -232,28 +242,27 @@ class TrainingDataset(Dataset):
     def _read_pair(self,pair_index):
         assert self.mode in [ 'r','sim']
         index_first, index_second , cat = pair_index
-        assert index_first * index_second >=0
-
-        if index_first>=0:
-            instance_type = 'syn'
+        # assert index_first * index_second >=0
+        def get_data(index, cat):
+            if index>=0:
+                instance_type = 'syn'
+                img_path, instance_id = self.syn_category_dict[str(cat)][index]
+                cam_fx, cam_fy, cam_cx, cam_cy = self.syn_intrinsics
+            else:
+                instance_type = 'real'
+                index = -index-1
+                
+                img_path, instance_id = self.real_category_dict[str(cat)][index]
+                cam_fx, cam_fy, cam_cx, cam_cy = self.real_intrinsics
+            return self._load_data(img_path,
+                                        instance_type, 
+                                        cam_cx, cam_cy,cam_fx, cam_fy, instance_id)
             
-            img_path_first, instance_id_first = self.syn_category_dict[str(cat)][index_first]
-            img_path_second, instance_id_second = self.syn_category_dict[str(cat)][index_second]
-            cam_fx, cam_fy, cam_cx, cam_cy = self.syn_intrinsics
-        else:
-            instance_type = 'real'
-            index_first = -index_first-1
-            index_second = -index_second - 1
-            img_path_first, instance_id_first = self.real_category_dict[str(cat)][index_first]
-            img_path_second, instance_id_second = self.real_category_dict[str(cat)][index_second]
-            cam_fx, cam_fy, cam_cx, cam_cy = self.real_intrinsics
+            
+        
 
-        tuple_first = self._load_data(img_path_first,
-                                        instance_type, 
-                                        cam_cx, cam_cy,cam_fx, cam_fy, instance_id_first)
-        tuple_second = self._load_data(img_path_second,
-                                        instance_type, 
-                                        cam_cx, cam_cy,cam_fx, cam_fy, instance_id_second)
+        tuple_first = get_data(index_first, cat)
+        tuple_second = get_data(index_second, cat)
         if tuple_first is None or tuple_second is None:
             return None
         pts_first, rgb_first, translation_first, \

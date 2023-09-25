@@ -30,6 +30,7 @@ class Solver(gorilla.solver.BaseSolver):
         if cfg.checkpoint_epoch != -1:
             logger.info("=> loading checkpoint from epoch {} ...".format(cfg.checkpoint_epoch))
             checkpoint = os.path.join(cfg.log_dir, 'epoch_' + str(cfg.checkpoint_epoch) + '.pth')
+            
             checkpoint_file = gorilla.solver.resume(model=model, filename=checkpoint, optimizer=self.optimizer, scheduler=self.lr_scheduler)
             start_epoch = checkpoint_file['epoch']+1
             start_iter = checkpoint_file['iter']
