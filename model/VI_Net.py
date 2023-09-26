@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from module import SphericalFPN, V_Branch, I_Branch
 from loss import SigmoidFocalLoss
 from smap_utils import Feat2Smap
+from rotation_utils import angle_of_rotation
 
 
 class Net(nn.Module):
@@ -31,12 +32,15 @@ class Net(nn.Module):
 
         # viewpoint rotation
         vp_rot, rho_prob, phi_prob = self.v_branch(x, inputs)
+        pred_vp_rot = self.v_branch._get_vp_rotation(rho_prob, phi_prob,{})
 
         # in-plane rotation
         ip_rot = self.i_branch(x, vp_rot)
-
+        
         outputs = {
             'pred_rotation': vp_rot @ ip_rot,
+            'pred_vp_rotation': pred_vp_rot,
+            'pred_ip_rotation': ip_rot,
             'rho_prob': rho_prob,
             'phi_prob': phi_prob
         }
@@ -67,10 +71,21 @@ class Loss(nn.Module):
         ip_loss = self.l1loss(pred['pred_rotation'], gt['rotation_label'])
         loss = self.cfg.vp_weight * vp_loss + ip_loss
 
+
+        residual_angle = angle_of_rotation(pred['pred_rotation'].transpose(1,2) @ gt['rotation_label']).mean()
+
+        vp_residual_angle = angle_of_rotation(pred['pred_vp_rotation'].transpose(1,2) @ gt['vp_rotation_label']).mean()
+        ip_residual_angle = angle_of_rotation(pred['pred_ip_rotation'].transpose(1,2) @ gt['ip_rotation_label']).mean()
+        
+        loss = loss #+ vp_residual_angle + ip_residual_angle
+
         return {
             'loss': loss,
             'vp_loss': vp_loss,
             'ip_loss': ip_loss,
             'rho_acc': rho_acc,
             'phi_acc': phi_acc,
+            'residual_angle':residual_angle,
+            'vp_residual_angle':vp_residual_angle,
+            'ip_residual_angle': ip_residual_angle
         }

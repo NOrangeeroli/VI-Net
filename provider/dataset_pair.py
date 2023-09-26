@@ -38,7 +38,8 @@ class TrainingDataset(Dataset):
             mode='ts',
             num_img_per_epoch=-1,
             resolution=64,
-            ds_rate=2
+            ds_rate=2,
+            for_sim_feature = False
     ):
         assert mode in ['ts','r','sim']
         self.config = config
@@ -48,6 +49,7 @@ class TrainingDataset(Dataset):
 
         self.resolution = resolution
         self.ds_rate = ds_rate
+        self.for_sim_feature = for_sim_feature
         try: 
             self.sample_num = self.config.sample_num
             self.data_dir = config.data_dir
@@ -56,7 +58,7 @@ class TrainingDataset(Dataset):
             self.data_dir = config['data_dir']
         
 
-
+        self.invalid_index = []
         syn_img_path = 'camera/train_list.txt'
         self.syn_intrinsics = [577.5, 577.5, 319.5, 239.5]
         self.syn_img_list = [os.path.join(syn_img_path.split('/')[0], line.rstrip('\n'))
@@ -67,7 +69,10 @@ class TrainingDataset(Dataset):
 
         syn_category_path = 'camera/train_category_dict.json'
         self.syn_category_dict = json.load(open(os.path.join(self.data_dir, syn_category_path)))
-        self.reference_category_dict = self.syn_category_dict
+        syn_category_dict_tmp = self.syn_category_dict
+        for cls in syn_category_dict_tmp.keys():
+                syn_category_dict_tmp[cls] = [[x[0], x[1], 'syn'] for x in syn_category_dict_tmp[cls]]
+        self.reference_category_dict = syn_category_dict_tmp
 
         if self.dataset == 'REAL275':
             real_img_path = 'real/train_list.txt'
@@ -77,20 +82,36 @@ class TrainingDataset(Dataset):
             print('{} real images are found.'.format(len(self.real_img_list)))
             real_category_path = 'real/train_category_dict.json'
             self.real_category_dict = json.load(open(os.path.join(self.data_dir, real_category_path)))
-            self.reference_category_dict = self.real_category_dict
-
-
+            real_category_dict_tmp = self.real_category_dict
+            for cls in real_category_dict_tmp.keys():
+                real_category_dict_tmp[cls] = [[x[0], x[1], 'real'] for x in real_category_dict_tmp[cls]]
+            self.reference_category_dict = {cat:self.reference_category_dict[cat] + real_category_dict_tmp[cat] for cat in self.reference_category_dict.keys()}
+        
+        self.cls_list = sorted(list(self.reference_category_dict.keys()))
         self.xmap = np.array([[i for i in range(640)] for j in range(480)])
         self.ymap = np.array([[j for i in range(640)] for j in range(480)])
         self.sym_ids = [0, 1, 3]    # 0-indexed
         self.norm_scale = 1000.0    # normalization scale
         self.colorjitter = transforms.ColorJitter(0.2, 0.2, 0.2, 0.05)
         
+        
+        self.feature_instance_list = []
+        for cls in self.cls_list:
+            num_instance = len(self.reference_category_dict[cls])
+            
+            self.feature_instance_list+=[(cls, i) for i in range(num_instance)]
+
+            
+            
+            
 
         if self.num_img_per_epoch != -1:
             self.reset()
 
     def __len__(self):
+        if self.for_sim_feature:
+            return len(self.feature_instance_list)
+
         if self.mode == 'ts':
             if self.num_img_per_epoch == -1:
                 if self.dataset == 'REAL275':
@@ -138,9 +159,7 @@ class TrainingDataset(Dataset):
             #import pdb;pdb.set_trace()
             
             np.random.shuffle(self.img_index)
-        elif self.mode in ['r', 'sim']:
-            import pdb;pdb.set_trace()
-            
+        elif self.mode in ['r', 'sim']:            
 
             if self.dataset == 'REAL275':
                 num_instance_per_epoch = self.num_img_per_epoch
@@ -220,6 +239,19 @@ class TrainingDataset(Dataset):
      
 
     def __getitem__(self, index):
+        if self.for_sim_feature:
+            while True:
+                cls, idx = self.feature_instance_list[index]
+
+                data_dict =  self._read_instance_from_category_dict(cls, idx)
+                if data_dict is None:
+                    index +=1
+                    self.invalid_index.append(index)
+                    continue
+                data_dict['index'] = torch.IntTensor([idx]).long()
+                data_dict['cls'] = torch.IntTensor([int(cls)]).long()
+                return data_dict
+                
         
         if self.mode =='ts':
             while True:
@@ -266,9 +298,11 @@ class TrainingDataset(Dataset):
         if tuple_first is None or tuple_second is None:
             return None
         pts_first, rgb_first, translation_first, \
-        rotation_first, size_first, cat_id_first, asym_flag_first= tuple_first
+        rotation_first, size_first, cat_id_first, asym_flag_first, \
+        rmin_first, rmax_first, cmin_first, cmax_first, choose_first, rgb_raw_first= tuple_first
         pts_second, rgb_second, translation_second, \
-        rotation_second, size_second, cat_id_second, asym_flag_second= tuple_second
+        rotation_second, size_second, cat_id_second, asym_flag_second, \
+        rmin_second, rmax_second, cmin_second, cmax_second, choose_second, rgb_raw_second    = tuple_second
         assert cat_id_first == cat_id_second
         assert asym_flag_first == asym_flag_second
         assert cat_id_first == cat-1
@@ -315,7 +349,13 @@ class TrainingDataset(Dataset):
             rotation_angle_label  = np.arccos(cos)
             ret_dict['rotation_angle_label'] = torch.FloatTensor([rotation_angle_label])
         ret_dict['rgb'] = torch.FloatTensor(np.stack([rgb_first, rgb_second],axis = 0))
+        ret_dict['rgb_raw'] = torch.FloatTensor(np.stack([rgb_raw_first, rgb_raw_second],axis = 0))
         ret_dict['pts'] = torch.FloatTensor(np.stack([pts_first, pts_second],axis = 0))
+        ret_dict['rmin'] = torch.IntTensor([rmin_first, rmin_second]).long()
+        ret_dict['rmax'] = torch.IntTensor([rmax_first, rmax_second]).long()
+        ret_dict['cmin'] = torch.IntTensor([cmin_first, cmin_second]).long()
+        ret_dict['cmax'] = torch.IntTensor([cmax_first, cmax_second]).long()
+        ret_dict['choose'] = torch.IntTensor(np.stack([choose_first, choose_second], axis = 0)).long()
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['asym_flag'] = torch.FloatTensor([asym_flag])
         ret_dict['translation_label'] = torch.FloatTensor(np.stack([translation_first, translation_second],axis = 0))
@@ -329,11 +369,11 @@ class TrainingDataset(Dataset):
         return ret_dict
     
     def _load_data(self,img_path,img_type, cam_cx, cam_cy,cam_fx, cam_fy, instance_id = -1, without_noise = False):
-        
+        #import pdb;pdb.set_trace()
         if self.dataset == 'REAL275':
             depth = load_composed_depth(img_path)
             depth = fill_missing(depth, self.norm_scale, 1)
-            #print("FILL MISSING", img_path, time.time()-st)
+
         else:
             depth = load_depth(img_path)
 
@@ -374,12 +414,15 @@ class TrainingDataset(Dataset):
         # rgb
         rgb = cv2.imread(img_path + '_color.png')[:, :, :3]
         rgb = rgb[:, :, ::-1] #480*640*3
+        rgb_raw = rgb
         rgb = rgb[rmin:rmax, cmin:cmax, :]
+        
     
         rgb = self.colorjitter(Image.fromarray(np.uint8(rgb)))
         rgb = np.array(rgb)
         if img_type == 'syn':
             rgb = rgb_add_noise(rgb)
+        
         rgb = rgb.astype(np.float32).reshape((-1,3))[choose, :] / 255.0
 
         # gt
@@ -431,7 +474,8 @@ class TrainingDataset(Dataset):
             assert np.isclose(np.linalg.det(rotation),1)
             rotation = rotation[:, (2,0,1)]
             assert np.isclose(np.linalg.det(rotation),1)
-            return pts, rgb, translation, rotation, size, cat_id, asym_flag
+            return pts, rgb, translation, rotation, size, cat_id, asym_flag, \
+                rmin, rmax, cmin, cmax, choose, rgb_raw.copy()
         else: 
             assert False
 
@@ -463,15 +507,15 @@ class TrainingDataset(Dataset):
         ret_dict['size_label'] = torch.FloatTensor(size)
         return ret_dict
     def _read_instance_from_category_dict(self, cls, idx ):
-        if self.dataset == "REAL275":
-            img_type = 'real'
-            img_path, instance_id = self.real_category_dict[str(cls)][idx]
+        img_path, instance_id, img_type = self.reference_category_dict[str(cls)][idx]
+        
+        if img_type == 'real':
+            
             
             cam_fx, cam_fy, cam_cx, cam_cy = self.real_intrinsics
 
         else:
-            img_type = 'syn'
-            img_path, instance_id = self.syn_category_dict[str(cls)][idx]
+            
             
             cam_fx, cam_fy, cam_cx, cam_cy = self.syn_intrinsics
         tuple_instance = self._load_data(img_path,
@@ -480,17 +524,35 @@ class TrainingDataset(Dataset):
         if tuple_instance is None:
             return None
 
-        pts, rgb, translation, rotation, size, cat_id, asym_flag = tuple_instance
+        pts, rgb, translation, rotation, size, cat_id, asym_flag, rmin, rmax, cmin, cmax, choose, rgb_raw = tuple_instance
         
         
         ret_dict = {}
         ret_dict['pts'] = torch.FloatTensor(pts)
         ret_dict['rgb'] = torch.FloatTensor(rgb)
+        ret_dict['rgb_raw'] = torch.FloatTensor(rgb_raw)
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['translation_label'] = torch.FloatTensor(translation)
         ret_dict['size_label'] = torch.FloatTensor(size)
         ret_dict['rotation_label'] = torch.FloatTensor(rotation)
+        ret_dict['rmin'] = torch.IntTensor([rmin]).long()
+        ret_dict['rmax'] = torch.IntTensor([rmax]).long()
+        ret_dict['cmin'] = torch.IntTensor([cmin]).long()
+        ret_dict['cmax'] = torch.IntTensor([cmax]).long()
+        ret_dict['choose'] = torch.IntTensor(choose).long()
         return ret_dict
+    def get_ref_data(self, clss, indexes):
+        data_list = []
+        assert clss.shape == indexes.shape
+        for cls, index in zip(clss, indexes):
+            data_list.append( self._read_instance_from_category_dict(cls, index) )
+        ret_dict = {}
+        for k in data_list[0].keys():
+            ret_dict[k] = torch.stack([d[k] for d in data_list], dim = 0)
+        return ret_dict
+
+
+            
 
        
 
@@ -501,7 +563,7 @@ class TrainingDataset(Dataset):
 
 
 class TestDataset():
-    def __init__(self, config, dataset='REAL275', resolution=64):
+    def __init__(self, config, dataset='REAL275', resolution=64, ds_rate = 2, for_sim_feature = False):
         self.dataset = dataset
         self.resolution = resolution
         self.data_dir = config.data_dir
@@ -509,22 +571,21 @@ class TestDataset():
 
         result_pkl_list = glob.glob(os.path.join(self.data_dir, 'detection', dataset, 'results_*.pkl'))
         self.result_pkl_list = sorted(result_pkl_list)
+        
         n_image = len(result_pkl_list)
         print('no. of test images: {}\n'.format(n_image))
         if dataset == 'REAL275':
             category_path = os.path.join(self.data_dir, 'detection', 'real_test_category_dict.json')
             self.category_dict = json.load(open(category_path))
-            reference_category_path = 'camera/train_category_dict.json'
+            
 
-            self.reference_category_dict = json.load(open(os.path.join(self.data_dir, reference_category_path)))
-
+            
         elif dataset == 'CAMERA25':
             category_path = os.path.join(self.data_dir, 'detection', 'camera_test_category_dict.json')
             self.category_dict = json.load(open(category_path))
             reference_category_path = 'real/train_category_dict.json'
 
-            self.reference_category_dict = json.load(open(os.path.join(self.data_dir, reference_category_path)))
-
+            
 
         else:
             assert False
@@ -532,8 +593,8 @@ class TestDataset():
         defaultTrainconfig,
         self.dataset,
         'r',
-        resolution = 64,
-        ds_rate = 2,
+        resolution = resolution,
+        ds_rate = ds_rate,
         num_img_per_epoch=1)
 
 
@@ -553,7 +614,12 @@ class TestDataset():
         return len(self.result_pkl_list)
 
     def __getitem__(self, index):
-        return self._get_pair_random(index)
+        #return self._get_pair_random(index)
+        return self._get_instance(index)
+    
+    
+    def _get_instance(self,index):
+        return self._get_instance_by_image_index(index)
     def _get_pair_random(self,index):
         ret_dict = self._get_instance_by_image_index(index)
         reference_rgb = []

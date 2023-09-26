@@ -404,6 +404,8 @@ class V_Branch(nn.Module):
         n = self.res
         assert n == rho_prob.size(1)
         assert n == phi_prob.size(1)
+        # if torch.isnan(rho_prob).sum()>0:
+        #     import pdb;pdb.set_trace()
 
         if self.training and 'rho_label' in l.keys():
             rho_label = l['rho_label'].reshape(b).long()
@@ -426,8 +428,8 @@ class V_Branch(nn.Module):
             phi_label = torch.max(phi_label, dim=1)[1]
 
 
-        rho_label = rho_label + 0.5
-        phi_label = phi_label + 0.5
+        rho_label = rho_label +0.5
+        phi_label = phi_label +0.5
 
         init_rho = rho_label.reshape(b).float() * (2*np.pi/float(n))
         init_phi = phi_label.reshape(b).float() * (np.pi/float(n))
@@ -450,6 +452,9 @@ class V_Branch(nn.Module):
         ],dim=1)
 
         return m1@m2
+
+
+
 
 
 
@@ -497,6 +502,99 @@ class I_Branch(nn.Module):
 
     def forward(self, x, vp_rot, cls=None):
         emb = self._get_transformed_feat(x, vp_rot)
+        emb = self.conv(emb).squeeze(3).squeeze(2)
+        r6d = self.mlp(emb)
+
+        if self.ncls > 1:
+            b = r6d.size(0)
+            index = cls.reshape(b,1,1).expand(b,6,1)
+            r6d = r6d.reshape(b,6,self.ncls)
+            r6d = torch.gather(r6d, 2, index).squeeze(2)
+        r = Ortho6d2Mat(r6d[:,0:3], r6d[:,3:6])
+        return r
+
+    def _get_transformed_feat(self, x, vp_rot):
+        b,c,n,_ = x.size()
+        assert n == self.res
+
+        grid = torch.arange(n).float().to(x.device) + 0.5
+        grid_rho = grid * (2*np.pi/float(n))
+        grid_rho = grid_rho.reshape(1,n).repeat(n,1)
+        grid_phi = grid * (np.pi/float(n))
+        grid_phi = grid_phi.reshape(n,1).repeat(1,n)
+
+        sph_xyz = torch.stack([
+            grid_rho.cos() * grid_phi.sin(),
+            grid_rho.sin() * grid_phi.sin(),
+            grid_phi.cos(),
+        ])
+
+        sph_xyz = sph_xyz.reshape(1,3,-1).repeat(b,1,1)
+        new_sph_xyz = vp_rot.transpose(1,2) @ sph_xyz
+
+        sph_xyz = sph_xyz.transpose(1,2).contiguous().detach()
+        new_sph_xyz = new_sph_xyz.transpose(1,2).contiguous().detach()
+        x = x.reshape(b,c,n*n).contiguous()
+
+        dist, idx = three_nn(sph_xyz, new_sph_xyz)
+        dist_recip = 1.0 / (dist + 1e-8)
+        norm = torch.sum(dist_recip, dim=2, keepdim=True)
+        weight = dist_recip / norm
+        new_x = three_interpolate(
+            x, idx.detach(), weight.detach()
+        ).reshape(b,c,n,n)
+        return new_x
+
+
+
+
+class I_Branch_Pair(nn.Module):
+    def __init__(self, in_dim=256, ncls=1, resolution=32):
+        super(I_Branch_Pair, self).__init__()
+        self.ncls = ncls
+        self.res = resolution
+
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_dim, 256, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Conv2d(256, 256, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Conv2d(256, 512, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.Conv2d(512, 1024, self.res//8, 1, 0, bias=False),
+            nn.BatchNorm2d(1024),
+            nn.ReLU(),
+        )
+
+        self.mlp = nn.Sequential(
+            nn.Linear(1024, 512, bias=False),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 256, bias=False),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Linear(256, 6*self.ncls),
+        )
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x, ref, vp_rot, cls=None):
+        emb = self._get_transformed_feat(x, vp_rot)
+        
+        assert emb.shape == ref.shape
+        emb = torch.cat([emb, ref], axis = 1)
         emb = self.conv(emb).squeeze(3).squeeze(2)
         r6d = self.mlp(emb)
 

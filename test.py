@@ -6,7 +6,7 @@ import random
 
 import torch
 import gorilla
-
+import numpy as np
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, 'provider'))
 sys.path.append(os.path.join(BASE_DIR, 'model'))
@@ -15,7 +15,7 @@ sys.path.append(os.path.join(BASE_DIR, 'lib', 'sphericalmap_utils'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'pointnet2'))
 
 from solver import test_func, get_logger
-from dataset_pair import TestDataset
+from dataset_pair import TestDataset, TrainingDataset
 from evaluation_utils import evaluate
 
 def get_parser():
@@ -80,11 +80,15 @@ if __name__ == "__main__":
     ts_model = Net(cfg.n_cls)
     from VI_Net_pair import Net
     r_model = Net(cfg.resolution, cfg.ds_rate)
+    from SIM_Net import Net
+    sim_model = Net(cfg.resolution, cfg.ds_rate)
     if len(cfg.gpus)>1:
         ts_model = torch.nn.DataParallel(ts_model, range(len(cfg.gpus.split(","))))
         r_model = torch.nn.DataParallel(r_model, range(len(cfg.gpus.split(","))))
+        sim_model = torch.nn.DataParallel(sim_model, range(len(cfg.gpus.split(","))))
     ts_model = ts_model.cuda()
     r_model = r_model.cuda()
+    sim_model= sim_model.cuda()
 
     checkpoint = os.path.join(cfg.log_dir, 'PN2', 'epoch_' + str(cfg.test_epoch) + '.pth')
     logger.info("=> loading PN2 checkpoint from path: {} ...".format(checkpoint))
@@ -94,14 +98,45 @@ if __name__ == "__main__":
     logger.info("=> loading VI-Net checkpoint from path: {} ...".format(checkpoint))
     gorilla.solver.load_checkpoint(model=r_model, filename=checkpoint)
 
-    # data loader
-    dataset = TestDataset(cfg.test, cfg.dataset, cfg.resolution)
+    checkpoint = os.path.join(cfg.log_dir, 'SIM_Net', 'epoch_' + str(cfg.test_epoch) + '.pth')
+    logger.info("=> loading SIM-Net checkpoint from path: {} ...".format(checkpoint))
+    gorilla.solver.load_checkpoint(model=sim_model, filename=checkpoint)
+
+    feature_file = os.path.join(BASE_DIR, cfg.feature.feature_path, cfg.feature.ref_feature_file)
+    
+    with open(feature_file, 'rb') as f:
+        
+        ref_feature= np.load(f, allow_pickle=True)
+        
+    ref_feature = torch.FloatTensor(ref_feature)
+    
+    # train_dataset  = TrainingDataset(
+    #     cfg.train_dataset,
+    #     cfg.dataset,
+    #     'r',
+    #     resolution = cfg.resolution,
+    #     ds_rate = cfg.ds_rate,
+    #     num_img_per_epoch=cfg.num_mini_batch_per_epoch*cfg.train_dataloader.bs,
+    #     )
+    # # data loader
+    # train_dataloder = torch.utils.data.DataLoader(
+    #     train_dataset,
+    #     batch_size=cfg.train_dataloader.bs,
+    #     num_workers=int(cfg.train_dataloader.num_workers),
+    #     shuffle=cfg.train_dataloader.shuffle,
+    #     sampler=None,
+    #     drop_last=cfg.train_dataloader.drop_last,
+    #     pin_memory=cfg.train_dataloader.pin_memory
+    # )
+    
+
+    dataset = TestDataset(cfg.test, cfg.dataset, cfg.resolution, cfg.ds_rate)
     dataloder = torch.utils.data.DataLoader(
             dataset,
             batch_size=1,
-            num_workers=8,
+            num_workers=0,
             shuffle=False,
             drop_last=False
         )
-    test_func(ts_model, r_model, dataloder, cfg.save_path)
+    test_func(ts_model, r_model, sim_model, dataloder,ref_feature, cfg.save_path)
     evaluate(cfg.save_path, logger)

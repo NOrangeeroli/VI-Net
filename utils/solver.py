@@ -176,9 +176,14 @@ class Solver(gorilla.solver.BaseSolver):
             assert False
 
 
-def test_func(ts_model, r_model, dataloder, save_path):
+def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
     ts_model.eval()
     r_model.eval()
+    ref_feature = refs[:,2:].cuda()
+    ref_index = refs[:,0].cuda()
+    ref_cls = refs[:,1].cuda()
+    ref_feature_norm = ref_feature/ref_feature.norm(dim=1)[:,None]
+
     with tqdm(total=len(dataloder)) as t:
         for i, data in enumerate(dataloder):
             path = dataloder.dataset.result_pkl_list[i]
@@ -216,16 +221,59 @@ def test_func(ts_model, r_model, dataloder, save_path):
 
                 pts = (inputs['pts'] - pred_translation.unsqueeze(1))/ (pred_scale + 1e-8).unsqueeze(2)
                 inputs['pts'] = pts.detach()
-                reference_pts = data['reference_pts'][0].cuda()
-                reference_rgb = data['reference_rgb'][0].cuda()
+
+                # reference_pts = data['reference_pts'][0].cuda()
+                # reference_rgb = data['reference_rgb'][0].cuda()
+                with torch.no_grad():
+
+                    test_feature = sim_model.extractor(inputs)
+                test_feature_norm = test_feature/test_feature.norm(dim = 1)[:,None]
+                best_ref_cls = []
+                best_ref_index = []
+                for test_feature_entry, category_id in zip(test_feature_norm, inputs['category_label']):
+                    test_feature_entry = test_feature_entry.reshape(1,-1)
+                    assert test_feature_entry.shape[0] == 1
+                    test_cls = category_id+1
+                    filter = (ref_cls== test_cls)
+                    cos_sim = torch.mm(test_feature_norm , ref_feature_norm[filter].transpose(0,1) )
+                    best_ref_cls.append(test_cls)
+                    best_id = torch.max(cos_sim, dim = 1)[1]
+                    best_ref_index.append(ref_index[filter][best_id])
+
+                    
+
+
+
+                # cos_sim = torch.mm(test_feature_norm , ref_feature_norm.transpose(0,1) )
+                # best_ref_id = torch.max(cos_sim, dim = 1)[1]
+                # best_ref_index = ref_index[best_ref_id]
                 import pdb;pdb.set_trace()
+
+                ref_data = dataloder.trainDataset.get_ref_data(best_ref_cls, best_ref_index)
+                
+                
+                reference_pts = ref_data['pts'].cuda()
+                reference_rgb = ref_data['rgb'].cuda()
+
+
+
+
+                
+
+
+
+
+
+
+
                 inputs['pts'] = torch.stack([inputs['pts'], reference_pts],dim = 1).float()
 
                 inputs['rgb'] = torch.stack([inputs['rgb'], reference_rgb],dim = 1).float()
-
+                # import pdb;pdb.set_trace()
                 end_points = r_model(inputs)
-                pred_rotation = end_points['pred_rotation'][:,:,(1,2,0)]
+                pred_rotation = end_points['pred_rotation']
                 pred_rotation = pred_rotation@data['reference_rotation'][0].cuda().float()
+                pred_rotation = pred_rotation[:,:,(1,2,0)]
                 dets = pred_rotation.det()
                 assert torch.allclose(dets, torch.ones_like(dets))
 

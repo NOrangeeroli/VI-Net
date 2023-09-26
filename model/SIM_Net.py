@@ -29,6 +29,13 @@ class Net(nn.Module):
         #     nn.ReLU(),
         #     nn.Linear(256, 1),
         # )
+    def extractor(self,inputs):
+        dis_map, rgb_map = self.feat2smap(inputs['pts'], inputs['rgb'])
+        x = self.spherical_fpn(dis_map, rgb_map)
+        x = x.reshape((x.shape[0], x.shape[1], -1))
+
+        x = torch.mean(x, dim = -1)
+        return x
 
     def forward(self, inputs):
         #import pdb;pdb.set_trace()
