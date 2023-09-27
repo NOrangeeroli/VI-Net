@@ -233,9 +233,10 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 for test_feature_entry, category_id in zip(test_feature_norm, inputs['category_label']):
                     test_feature_entry = test_feature_entry.reshape(1,-1)
                     assert test_feature_entry.shape[0] == 1
+                    assert category_id.shape == torch.Size([])
                     test_cls = category_id+1
                     filter = (ref_cls== test_cls)
-                    cos_sim = torch.mm(test_feature_norm , ref_feature_norm[filter].transpose(0,1) )
+                    cos_sim = torch.mm(test_feature_entry , ref_feature_norm[filter].transpose(0,1) )
                     best_ref_cls.append(test_cls)
                     best_id = torch.max(cos_sim, dim = 1)[1]
                     best_ref_index.append(ref_index[filter][best_id])
@@ -247,9 +248,8 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 # cos_sim = torch.mm(test_feature_norm , ref_feature_norm.transpose(0,1) )
                 # best_ref_id = torch.max(cos_sim, dim = 1)[1]
                 # best_ref_index = ref_index[best_ref_id]
-                import pdb;pdb.set_trace()
 
-                ref_data = dataloder.trainDataset.get_ref_data(best_ref_cls, best_ref_index)
+                ref_data = dataloder.dataset.trainDataset.get_ref_data(best_ref_cls, best_ref_index)
                 
                 
                 reference_pts = ref_data['pts'].cuda()
@@ -272,7 +272,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 # import pdb;pdb.set_trace()
                 end_points = r_model(inputs)
                 pred_rotation = end_points['pred_rotation']
-                pred_rotation = pred_rotation@data['reference_rotation'][0].cuda().float()
+                pred_rotation = pred_rotation@ref_data['rotation_label'].cuda().float()
                 pred_rotation = pred_rotation[:,:,(1,2,0)]
                 dets = pred_rotation.det()
                 assert torch.allclose(dets, torch.ones_like(dets))

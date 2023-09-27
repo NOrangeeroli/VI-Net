@@ -543,8 +543,12 @@ class TrainingDataset(Dataset):
         return ret_dict
     def get_ref_data(self, clss, indexes):
         data_list = []
-        assert clss.shape == indexes.shape
+        assert len(clss) == len(indexes)
         for cls, index in zip(clss, indexes):
+            assert len(index) == 1
+            
+            index = int(index[0].item())
+            cls = int(cls.item())
             data_list.append( self._read_instance_from_category_dict(cls, index) )
         ret_dict = {}
         for k in data_list[0].keys():
