@@ -271,6 +271,7 @@ class TrainingDataset(Dataset):
                     index = np.random.randint(self.__len__())
                     continue
                 return data_dict
+    
     def _read_pair(self,pair_index):
         assert self.mode in [ 'r','sim']
         index_first, index_second , cat = pair_index
@@ -278,13 +279,13 @@ class TrainingDataset(Dataset):
         def get_data(index, cat):
             if index>=0:
                 instance_type = 'syn'
-                img_path, instance_id = self.syn_category_dict[str(cat)][index]
+                img_path, instance_id, _ = self.syn_category_dict[str(cat)][index]
                 cam_fx, cam_fy, cam_cx, cam_cy = self.syn_intrinsics
             else:
                 instance_type = 'real'
                 index = -index-1
                 
-                img_path, instance_id = self.real_category_dict[str(cat)][index]
+                img_path, instance_id, _ = self.real_category_dict[str(cat)][index]
                 cam_fx, cam_fy, cam_cx, cam_cy = self.real_intrinsics
             return self._load_data(img_path,
                                         instance_type, 
@@ -299,10 +300,10 @@ class TrainingDataset(Dataset):
             return None
         pts_first, rgb_first, translation_first, \
         rotation_first, size_first, cat_id_first, asym_flag_first, \
-        rmin_first, rmax_first, cmin_first, cmax_first, choose_first, rgb_raw_first= tuple_first
+        rmin_first, rmax_first, cmin_first, cmax_first, choose_first, rgb_raw_first,pts_raw_first, mask_first= tuple_first
         pts_second, rgb_second, translation_second, \
         rotation_second, size_second, cat_id_second, asym_flag_second, \
-        rmin_second, rmax_second, cmin_second, cmax_second, choose_second, rgb_raw_second    = tuple_second
+        rmin_second, rmax_second, cmin_second, cmax_second, choose_second, rgb_raw_second,pts_raw_second, mask_second   = tuple_second
         assert cat_id_first == cat_id_second
         assert asym_flag_first == asym_flag_second
         assert cat_id_first == cat-1
@@ -350,12 +351,15 @@ class TrainingDataset(Dataset):
             ret_dict['rotation_angle_label'] = torch.FloatTensor([rotation_angle_label])
         ret_dict['rgb'] = torch.FloatTensor(np.stack([rgb_first, rgb_second],axis = 0))
         ret_dict['rgb_raw'] = torch.FloatTensor(np.stack([rgb_raw_first, rgb_raw_second],axis = 0))
+        ret_dict['pts_raw'] = torch.FloatTensor(np.stack([pts_raw_first, pts_raw_second],axis = 0))
         ret_dict['pts'] = torch.FloatTensor(np.stack([pts_first, pts_second],axis = 0))
         ret_dict['rmin'] = torch.IntTensor([rmin_first, rmin_second]).long()
         ret_dict['rmax'] = torch.IntTensor([rmax_first, rmax_second]).long()
         ret_dict['cmin'] = torch.IntTensor([cmin_first, cmin_second]).long()
         ret_dict['cmax'] = torch.IntTensor([cmax_first, cmax_second]).long()
         ret_dict['choose'] = torch.IntTensor(np.stack([choose_first, choose_second], axis = 0)).long()
+        ret_dict['mask'] = torch.IntTensor(np.stack([mask_first, mask_second], axis = 0)).long()
+        
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['asym_flag'] = torch.FloatTensor([asym_flag])
         ret_dict['translation_label'] = torch.FloatTensor(np.stack([translation_first, translation_second],axis = 0))
@@ -369,7 +373,7 @@ class TrainingDataset(Dataset):
         return ret_dict
     
     def _load_data(self,img_path,img_type, cam_cx, cam_cy,cam_fx, cam_fy, instance_id = -1, without_noise = False):
-        #import pdb;pdb.set_trace()
+        
         if self.dataset == 'REAL275':
             depth = load_composed_depth(img_path)
             depth = fill_missing(depth, self.norm_scale, 1)
@@ -384,6 +388,7 @@ class TrainingDataset(Dataset):
         
         assert(len(gts['class_ids'])==len(gts['instance_ids']))
         mask = cv2.imread(img_path + '_mask.png')[:, :, 2] #480*640
+
 
         
         if instance_id == -1:
@@ -405,12 +410,22 @@ class TrainingDataset(Dataset):
         choose = choose[choose_idx]
 
         # pts
+        h, w = depth.shape
         pts2 = depth.copy()[rmin:rmax, cmin:cmax].reshape((-1))[choose] / self.norm_scale
         pts0 = (self.xmap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cx) * pts2 / cam_fx
         pts1 = (self.ymap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cy) * pts2 / cam_fy
         pts = np.transpose(np.stack([pts0, pts1, pts2]), (1,0)).astype(np.float32) # 480*640*3
         pts = pts + np.clip(0.001*np.random.randn(pts.shape[0], 3), -0.005, 0.005)
 
+        pts2_raw = (depth.copy()).reshape((-1))/ self.norm_scale
+        pts0_raw = (self.xmap.reshape((-1)) - cam_cx) * pts2_raw / cam_fx
+        pts1_raw = (self.ymap.reshape((-1))- cam_cy) * pts2_raw / cam_fy
+        pts_raw = np.transpose(np.stack([pts0_raw, pts1_raw, pts2_raw]), (1,0)).astype(np.float32) # 480*640*3
+        pts_raw = pts_raw + np.clip(0.001*np.random.randn(pts_raw.shape[0], 3), -0.005, 0.005)
+        pts_raw = pts_raw.reshape((h,w,3)) * mask[:,:,None]
+
+        
+        #import pdb;pdb.set_trace()
         # rgb
         rgb = cv2.imread(img_path + '_color.png')[:, :, :3]
         rgb = rgb[:, :, ::-1] #480*640*3
@@ -475,7 +490,7 @@ class TrainingDataset(Dataset):
             rotation = rotation[:, (2,0,1)]
             assert np.isclose(np.linalg.det(rotation),1)
             return pts, rgb, translation, rotation, size, cat_id, asym_flag, \
-                rmin, rmax, cmin, cmax, choose, rgb_raw.copy()
+                rmin, rmax, cmin, cmax, choose, rgb_raw.copy(), pts_raw.copy(), mask
         else: 
             assert False
 
@@ -524,13 +539,15 @@ class TrainingDataset(Dataset):
         if tuple_instance is None:
             return None
 
-        pts, rgb, translation, rotation, size, cat_id, asym_flag, rmin, rmax, cmin, cmax, choose, rgb_raw = tuple_instance
+        pts, rgb, translation, rotation, size, cat_id, asym_flag, \
+            rmin, rmax, cmin, cmax, choose, rgb_raw, pts_raw, mask = tuple_instance
         
         
         ret_dict = {}
         ret_dict['pts'] = torch.FloatTensor(pts)
         ret_dict['rgb'] = torch.FloatTensor(rgb)
         ret_dict['rgb_raw'] = torch.FloatTensor(rgb_raw)
+        ret_dict['pts_raw'] = torch.FloatTensor(pts_raw)
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['translation_label'] = torch.FloatTensor(translation)
         ret_dict['size_label'] = torch.FloatTensor(size)
@@ -540,6 +557,7 @@ class TrainingDataset(Dataset):
         ret_dict['cmin'] = torch.IntTensor([cmin]).long()
         ret_dict['cmax'] = torch.IntTensor([cmax]).long()
         ret_dict['choose'] = torch.IntTensor(choose).long()
+        ret_dict['mask'] = torch.IntTensor(mask).long()
         return ret_dict
     def get_ref_data(self, clss, indexes):
         data_list = []

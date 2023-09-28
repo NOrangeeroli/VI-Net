@@ -93,8 +93,9 @@ if __name__ == "__main__":
 
     # model
     logger.info("=> creating model ...")
+
     if cfg.mod == 'r':
-        from VI_Net_pair import Net, Loss
+        from VI_Net_match import Net, Loss
         model = Net(cfg.resolution, cfg.ds_rate)
 
     elif cfg.mod == 'ts':
@@ -103,6 +104,7 @@ if __name__ == "__main__":
     elif cfg.mod == 'sim':
         from SIM_Net import Net, Loss
         model = Net(cfg.resolution, cfg.ds_rate)
+
     if len(cfg.gpus) > 1:
         model = torch.nn.DataParallel(model, range(len(cfg.gpus.split(","))))
     model = model.cuda()
