@@ -78,7 +78,7 @@ if __name__ == "__main__":
     logger.info("=> loading model ...")
     from PN2 import Net
     ts_model = Net(cfg.n_cls)
-    from VI_Net_pair import Net
+    from VI_Net_match import Net
     r_model = Net(cfg.resolution, cfg.ds_rate)
     from SIM_Net import Net
     sim_model = Net(cfg.resolution, cfg.ds_rate)
