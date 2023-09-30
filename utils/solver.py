@@ -73,6 +73,7 @@ class Solver(gorilla.solver.BaseSolver):
         end = time.time()
         self.dataloaders["train"].dataset.reset()
         
+    
         for i, data in enumerate(self.dataloaders["train"]):
             data_time = time.time()-end
             
@@ -139,7 +140,14 @@ class Solver(gorilla.solver.BaseSolver):
         torch.cuda.synchronize()
         for key in data:
             data[key] = data[key].cuda()
+        # from torch.profiler import profile, record_function, ProfilerActivity
+        # with profile(activities=[
+        #     ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+        #     with record_function("model_inference"):
         end_points = self.model(data)
+
+        # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+        
         dict_info = self.loss(end_points, data)
         loss_all = dict_info['loss']
 

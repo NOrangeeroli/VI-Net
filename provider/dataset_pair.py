@@ -7,6 +7,7 @@ import _pickle as cPickle
 from PIL import Image
 from scipy.spatial.transform import Rotation as R
 import time
+import torch.nn.functional as F
 
 import torch
 from torch.utils.data import Dataset
@@ -39,13 +40,20 @@ class TrainingDataset(Dataset):
             num_img_per_epoch=-1,
             resolution=64,
             ds_rate=2,
-            for_sim_feature = False
+            for_sim_feature = False,
+            raw_size = 840,
+            match_sample_num = 128,
+            num_patches = 60
+
     ):
         assert mode in ['ts','r','sim']
         self.config = config
         self.dataset = dataset
         self.mode = mode
         self.num_img_per_epoch = num_img_per_epoch
+        self.raw_size = raw_size
+        self.match_sample_num = match_sample_num
+        self.num_patches = num_patches
 
         self.resolution = resolution
         self.ds_rate = ds_rate
@@ -133,6 +141,7 @@ class TrainingDataset(Dataset):
                 return len(self.instance_index)
         
     def reset(self):
+        #import pdb;pdb.set_trace()
         assert self.num_img_per_epoch != -1
         def choice(x, y):
             if x<=y:
@@ -300,10 +309,10 @@ class TrainingDataset(Dataset):
             return None
         pts_first, rgb_first, translation_first, \
         rotation_first, size_first, cat_id_first, asym_flag_first, \
-        rmin_first, rmax_first, cmin_first, cmax_first, choose_first, rgb_raw_first,pts_raw_first, mask_first= tuple_first
+        choose_first, rgb_raw_first,pts_raw_first, mask_first= tuple_first
         pts_second, rgb_second, translation_second, \
         rotation_second, size_second, cat_id_second, asym_flag_second, \
-        rmin_second, rmax_second, cmin_second, cmax_second, choose_second, rgb_raw_second,pts_raw_second, mask_second   = tuple_second
+        choose_second, rgb_raw_second,pts_raw_second, mask_second   = tuple_second
         assert cat_id_first == cat_id_second
         assert asym_flag_first == asym_flag_second
         assert cat_id_first == cat-1
@@ -349,16 +358,16 @@ class TrainingDataset(Dataset):
 
             rotation_angle_label  = np.arccos(cos)
             ret_dict['rotation_angle_label'] = torch.FloatTensor([rotation_angle_label])
-        ret_dict['rgb'] = torch.FloatTensor(np.stack([rgb_first, rgb_second],axis = 0))
-        ret_dict['rgb_raw'] = torch.FloatTensor(np.stack([rgb_raw_first, rgb_raw_second],axis = 0))
-        ret_dict['pts_raw'] = torch.FloatTensor(np.stack([pts_raw_first, pts_raw_second],axis = 0))
-        ret_dict['pts'] = torch.FloatTensor(np.stack([pts_first, pts_second],axis = 0))
-        ret_dict['rmin'] = torch.IntTensor([rmin_first, rmin_second]).long()
-        ret_dict['rmax'] = torch.IntTensor([rmax_first, rmax_second]).long()
-        ret_dict['cmin'] = torch.IntTensor([cmin_first, cmin_second]).long()
-        ret_dict['cmax'] = torch.IntTensor([cmax_first, cmax_second]).long()
+        ret_dict['rgb'] = torch.stack([rgb_first, rgb_second],dim = 0)
+        ret_dict['rgb_raw'] = torch.stack([rgb_raw_first, rgb_raw_second],dim = 0)
+        ret_dict['pts_raw'] = torch.stack([pts_raw_first, pts_raw_second],dim = 0)
+        ret_dict['pts'] = torch.stack([pts_first, pts_second],dim = 0)
+        # ret_dict['rmin'] = torch.IntTensor([rmin_first, rmin_second]).long()
+        # ret_dict['rmax'] = torch.IntTensor([rmax_first, rmax_second]).long()
+        # ret_dict['cmin'] = torch.IntTensor([cmin_first, cmin_second]).long()
+        # ret_dict['cmax'] = torch.IntTensor([cmax_first, cmax_second]).long()
         ret_dict['choose'] = torch.IntTensor(np.stack([choose_first, choose_second], axis = 0)).long()
-        ret_dict['mask'] = torch.IntTensor(np.stack([mask_first, mask_second], axis = 0)).long()
+        ret_dict['mask'] = torch.stack([mask_first, mask_second], dim = 0).long()
         
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['asym_flag'] = torch.FloatTensor([asym_flag])
@@ -399,78 +408,86 @@ class TrainingDataset(Dataset):
         mask = np.equal(mask, gts['instance_ids'][instance_id])
         mask = np.logical_and(mask , depth > 0)
 
-        # choose
-        choose = mask[rmin:rmax, cmin:cmax].flatten().nonzero()[0]
-        if len(choose)<=0:
-            return None
-        elif len(choose) <= self.sample_num:
-            choose_idx = np.random.choice(np.arange(len(choose)), self.sample_num)
-        else:
-            choose_idx = np.random.choice(np.arange(len(choose)), self.sample_num, replace=False)
-        choose = choose[choose_idx]
+        
 
         # pts
         h, w = depth.shape
-        pts2 = depth.copy()[rmin:rmax, cmin:cmax].reshape((-1))[choose] / self.norm_scale
-        pts0 = (self.xmap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cx) * pts2 / cam_fx
-        pts1 = (self.ymap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cy) * pts2 / cam_fy
-        pts = np.transpose(np.stack([pts0, pts1, pts2]), (1,0)).astype(np.float32) # 480*640*3
-        pts = pts + np.clip(0.001*np.random.randn(pts.shape[0], 3), -0.005, 0.005)
+        # pts2 = depth.copy()[rmin:rmax, cmin:cmax].reshape((-1))[choose] / self.norm_scale
+        # pts0 = (self.xmap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cx) * pts2 / cam_fx
+        # pts1 = (self.ymap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cy) * pts2 / cam_fy
+        # pts = np.transpose(np.stack([pts0, pts1, pts2]), (1,0)).astype(np.float32) # 480*640*3
+        # pts = pts #+ np.clip(0.001*np.random.randn(pts.shape[0], 3), -0.005, 0.005)
 
         pts2_raw = (depth.copy()).reshape((-1))/ self.norm_scale
         pts0_raw = (self.xmap.reshape((-1)) - cam_cx) * pts2_raw / cam_fx
         pts1_raw = (self.ymap.reshape((-1))- cam_cy) * pts2_raw / cam_fy
-        pts_raw = np.transpose(np.stack([pts0_raw, pts1_raw, pts2_raw]), (1,0)).astype(np.float32) # 480*640*3
+        pts_raw = np.stack([pts0_raw, pts1_raw, pts2_raw],axis = -1).astype(np.float32) # 480*640*3
         pts_raw = pts_raw + np.clip(0.001*np.random.randn(pts_raw.shape[0], 3), -0.005, 0.005)
-        pts_raw = pts_raw.reshape((h,w,3)) * mask[:,:,None]
+        pts_raw = pts_raw.reshape((h,w,3)) 
 
         
-        #import pdb;pdb.set_trace()
+
+        
+        
         # rgb
         rgb = cv2.imread(img_path + '_color.png')[:, :, :3]
         rgb = rgb[:, :, ::-1] #480*640*3
         rgb_raw = rgb
-        rgb = rgb[rmin:rmax, cmin:cmax, :]
+        rgb_raw = self.colorjitter(Image.fromarray(np.uint8(rgb_raw)))
+        rgb_raw = np.array(rgb_raw)
+
+
+        if img_type == 'syn':
+            rgb_raw = rgb_add_noise(rgb_raw)
+        rgb_raw = rgb_raw.astype(np.float32)/ 255.0
+        #rgb = rgb_raw[rmin:rmax, cmin:cmax, :].reshape((-1,3))[choose, :] 
         
     
-        rgb = self.colorjitter(Image.fromarray(np.uint8(rgb)))
-        rgb = np.array(rgb)
-        if img_type == 'syn':
-            rgb = rgb_add_noise(rgb)
         
-        rgb = rgb.astype(np.float32).reshape((-1,3))[choose, :] / 255.0
+        
+        
+        
+        
 
         # gt
         translation = gts['translations'][instance_id].astype(np.float32)
         rotation = gts['rotations'][instance_id].astype(np.float32)
         size = gts['scales'][instance_id] * gts['sizes'][instance_id].astype(np.float32)
 
-
-        if hasattr(self.config, 'random_rotate') and self.config.random_rotate:
-            pts, rotation = random_rotate(pts, rotation, translation, self.config.angle_range)
         
+        if hasattr(self.config, 'random_rotate') and self.config.random_rotate:
+            pts_raw, rotation = random_rotate(pts_raw.reshape(-1,3), rotation, translation, self.config.angle_range)
+            pts_raw = pts_raw.reshape(h,w,3)
         if self.mode == 'ts':
-            pts, size = random_scale(pts, size, rotation, translation)
-
+            pts_raw, size = random_scale(pts_raw.reshape(-1,3), size, rotation, translation)
+            
             center = np.mean(pts, axis=0)
-            pts = pts - center[np.newaxis, :]
+            pts_raw = pts_raw - center[np.newaxis, :]
             translation = translation - center
 
             noise_t = np.random.uniform(-0.02, 0.02, 3)
-            pts = pts + noise_t[None, :]
+            pts_raw = pts_raw + noise_t[None, :]
+            pts_raw = pts_raw.reshape(h,w,3)
+            pts = pts_raw[rmin:rmax, cmin:cmax].reshape((-1,3))[choose]
             translation = translation + noise_t
             return pts, rgb, translation, rotation, size, cat_id
         elif self.mode in  ['r', 'sim']:
+            
             noise_t = np.random.uniform(-0.02, 0.02, 3)
             noise_s = np.random.uniform(0.8, 1.2, 1)
+            
             if without_noise:
-                pts = pts - translation[None, :]
-                pts = pts / np.linalg.norm(size)
-            else:
+                # pts = pts - translation[None, :]
+                # pts = pts / np.linalg.norm(size)
+                pts_raw = pts_raw - translation[None,None, :]
+                pts_raw = pts_raw / np.linalg.norm(size)
                 
-                pts = pts - translation[None, :] - noise_t[None, :]
-                pts = pts / np.linalg.norm(size) * noise_s
-
+            else:
+                # pts = pts - translation[None, :] - noise_t[None, :]
+                # pts = pts / np.linalg.norm(size) * noise_s
+                pts_raw = pts_raw - translation[None,None, :] - noise_t[None,None, :]
+                pts_raw = pts_raw / np.linalg.norm(size) * noise_s
+            #pts = pts_raw[rmin:rmax, cmin:cmax].reshape((-1,3))[choose].copy()
             if cat_id in self.sym_ids:
                 theta_x = rotation[0, 0] + rotation[2, 2]
                 theta_y = rotation[0, 2] - rotation[2, 0]
@@ -489,8 +506,57 @@ class TrainingDataset(Dataset):
             assert np.isclose(np.linalg.det(rotation),1)
             rotation = rotation[:, (2,0,1)]
             assert np.isclose(np.linalg.det(rotation),1)
+            
+
+            pts_raw = np.where((mask == 0)[:,:,None],np.nan, pts_raw)
+            
+            rgb_raw = torch.FloatTensor(rgb_raw[rmin:rmax, cmin:cmax]).permute(2,0,1)
+            pts_raw = torch.FloatTensor(pts_raw[rmin:rmax, cmin:cmax]).permute(2,0,1)
+            mask = torch.FloatTensor(mask[rmin:rmax, cmin:cmax])[:,:,None].permute(2,0,1)
+            
+            rgb_raw = F.interpolate(rgb_raw[None,:,:,:], mode = 'bilinear', size = (self.raw_size,self.raw_size)).squeeze().permute(1,2,0)
+            assert rgb_raw.shape == torch.Size([self.raw_size, self.raw_size, 3])
+            pts_raw = F.interpolate(pts_raw[None,:,:,:], mode = 'bilinear', size = (self.raw_size,self.raw_size)).squeeze().permute(1,2,0)
+            assert pts_raw.shape == torch.Size([self.raw_size, self.raw_size, 3])
+            mask = F.interpolate(mask[None,:,:,:], mode = 'nearest', size = (self.raw_size,self.raw_size)).int().squeeze()
+            assert mask.shape == torch.Size([self.raw_size, self.raw_size])
+
+            mask = mask.logical_and((pts_raw.isnan().sum(dim = -1)>0).logical_not())
+
+
+            
+            # choose
+            choose = mask.numpy().flatten().nonzero()[0]
+            
+            if len(choose)<=0:
+                return None
+            elif len(choose) <= self.sample_num:
+                choose_idx = np.random.choice(np.arange(len(choose)), self.sample_num)
+            else:
+                choose_idx = np.random.choice(np.arange(len(choose)), self.sample_num, replace=False)
+            choose = choose[choose_idx]
+            pts = pts_raw.reshape((-1,3))[choose]
+            rgb = rgb_raw.reshape((-1,3))[choose]
+            
+            pts_raw = F.interpolate(pts_raw[None,:,:,:].permute(0,3,1,2), mode = 'bilinear', size = (self.num_patches,self.num_patches)).squeeze().permute(1,2,0)
+            mask = pts_raw.isnan().logical_not().all(dim = -1)
+            choose = mask.numpy().flatten().nonzero()[0]
+            if len(choose)<=0:
+                return None
+            elif len(choose) <= self.match_sample_num:
+                choose_idx = np.random.choice(np.arange(len(choose)), self.match_sample_num)
+            else:
+                choose_idx = np.random.choice(np.arange(len(choose)), self.match_sample_num, replace=False)
+            choose = choose[choose_idx]
+
+            
+            
+
+            
+
             return pts, rgb, translation, rotation, size, cat_id, asym_flag, \
-                rmin, rmax, cmin, cmax, choose, rgb_raw.copy(), pts_raw.copy(), mask
+            choose, rgb_raw, pts_raw, mask    #rmin, rmax, cmin, cmax, 
+            
         else: 
             assert False
 

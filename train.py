@@ -121,6 +121,7 @@ if __name__ == "__main__":
         cfg.mod,
         resolution = cfg.resolution,
         ds_rate = cfg.ds_rate,
+        raw_size = cfg.raw_size,
         num_img_per_epoch=cfg.num_mini_batch_per_epoch*cfg.train_dataloader.bs)
     
     dataloader = torch.utils.data.DataLoader(
@@ -136,6 +137,8 @@ if __name__ == "__main__":
     dataloaders = {
         "train": dataloader,
     }
+    
+
 
     # solver
     Trainer = Solver(model=model, loss=loss,

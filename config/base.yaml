@@ -5,6 +5,7 @@ ds_rate: 2
 mode: epoch
 max_epoch : 40
 num_mini_batch_per_epoch: 5000
+raw_size: 840
 
 optimizer:
   type : Adam
@@ -32,8 +33,8 @@ train_dataset:
   angle_range: 20
 
 train_dataloader:
-  bs: 64
-  num_workers: 0
+  bs: 32
+  num_workers: 16
   shuffle: True
   drop_last: True
   pin_memory: False
