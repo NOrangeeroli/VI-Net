@@ -278,13 +278,13 @@ class TrainingDataset(Dataset):
         def get_data(index, cat):
             if index>=0:
                 instance_type = 'syn'
-                img_path, instance_id = self.syn_category_dict[str(cat)][index]
+                img_path, instance_id, _ = self.syn_category_dict[str(cat)][index]
                 cam_fx, cam_fy, cam_cx, cam_cy = self.syn_intrinsics
             else:
                 instance_type = 'real'
                 index = -index-1
                 
-                img_path, instance_id = self.real_category_dict[str(cat)][index]
+                img_path, instance_id ,_= self.real_category_dict[str(cat)][index]
                 cam_fx, cam_fy, cam_cx, cam_cy = self.real_intrinsics
             return self._load_data(img_path,
                                         instance_type, 
@@ -312,7 +312,7 @@ class TrainingDataset(Dataset):
         # assert  np.isclose([np.linalg.det(rotation_first),1])
         # assert  np.isclose([np.linalg.det(rotation_second),1])
 
-        rotation = rotation_first @ (rotation_second.T)
+        rotation = rotation_first# @ (rotation_second.T)
         assert np.isclose(np.linalg.det(rotation),1)
         
         
@@ -348,18 +348,28 @@ class TrainingDataset(Dataset):
 
             rotation_angle_label  = np.arccos(cos)
             ret_dict['rotation_angle_label'] = torch.FloatTensor([rotation_angle_label])
+        
+        # def rotate_pts(pts, rotation):
+        #     pts_shape = pts.shape
+            
+        #     return (rotation[None,:,:]@pts.reshape(-1,3)[:,:,None]).squeeze().reshape(pts_shape)
+        # pts_first = rotate_pts(pts_first, rotation_second)
+        # pts_second = rotate_pts(pts_second, rotation_second)
+
+
         ret_dict['rgb'] = torch.FloatTensor(np.stack([rgb_first, rgb_second],axis = 0))
-        ret_dict['rgb_raw'] = torch.FloatTensor(np.stack([rgb_raw_first, rgb_raw_second],axis = 0))
+        #ret_dict['rgb_raw'] = torch.FloatTensor(np.stack([rgb_raw_first, rgb_raw_second],axis = 0))
         ret_dict['pts'] = torch.FloatTensor(np.stack([pts_first, pts_second],axis = 0))
-        ret_dict['rmin'] = torch.IntTensor([rmin_first, rmin_second]).long()
-        ret_dict['rmax'] = torch.IntTensor([rmax_first, rmax_second]).long()
-        ret_dict['cmin'] = torch.IntTensor([cmin_first, cmin_second]).long()
-        ret_dict['cmax'] = torch.IntTensor([cmax_first, cmax_second]).long()
-        ret_dict['choose'] = torch.IntTensor(np.stack([choose_first, choose_second], axis = 0)).long()
+        # ret_dict['rmin'] = torch.IntTensor([rmin_first, rmin_second]).long()
+        # ret_dict['rmax'] = torch.IntTensor([rmax_first, rmax_second]).long()
+        # ret_dict['cmin'] = torch.IntTensor([cmin_first, cmin_second]).long()
+        # ret_dict['cmax'] = torch.IntTensor([cmax_first, cmax_second]).long()
+        # ret_dict['choose'] = torch.IntTensor(np.stack([choose_first, choose_second], axis = 0)).long()
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['asym_flag'] = torch.FloatTensor([asym_flag])
         ret_dict['translation_label'] = torch.FloatTensor(np.stack([translation_first, translation_second],axis = 0))
         ret_dict['rotation_label'] = torch.FloatTensor(rotation)
+        ret_dict['rotation_ref'] = torch.FloatTensor(rotation_second)
         ret_dict['size_label'] = torch.FloatTensor(np.stack([size_first, size_second],axis = 0))
 
         ret_dict['rho_label'] = torch.IntTensor([rho_label]).long()

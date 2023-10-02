@@ -90,7 +90,7 @@ if __name__ == "__main__":
     r_model = r_model.cuda()
     sim_model= sim_model.cuda()
 
-    checkpoint = os.path.join(cfg.log_dir, 'PN2', 'epoch_' + str(cfg.test_epoch) + '.pth')
+    checkpoint = os.path.join(cfg.log_dir, 'PN2', 'epoch_' + str(9) + '.pth')
     logger.info("=> loading PN2 checkpoint from path: {} ...".format(checkpoint))
     gorilla.solver.load_checkpoint(model=ts_model, filename=checkpoint)
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     logger.info("=> loading VI-Net checkpoint from path: {} ...".format(checkpoint))
     gorilla.solver.load_checkpoint(model=r_model, filename=checkpoint)
 
-    checkpoint = os.path.join(cfg.log_dir, 'SIM_Net', 'epoch_' + str(cfg.test_epoch) + '.pth')
+    checkpoint = os.path.join(cfg.log_dir, 'SIM_Net', 'epoch_' + str(5) + '.pth')
     logger.info("=> loading SIM-Net checkpoint from path: {} ...".format(checkpoint))
     gorilla.solver.load_checkpoint(model=sim_model, filename=checkpoint)
 

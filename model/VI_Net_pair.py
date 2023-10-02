@@ -7,6 +7,15 @@ from loss import SigmoidFocalLoss
 from smap_utils import Feat2Smap
 
 from rotation_utils import angle_of_rotation
+def plot_pt(pt):
+    import pyvista as pv
+    import matplotlib.pyplot as plt
+    cloud = pv.PolyData(pt)
+    mesh = cloud.delaunay_2d()
+    plotter = pv.Plotter()
+    plotter.add_mesh(mesh, color='white')
+    plotter.show()
+     
 
 class Net(nn.Module):
     def __init__(self, resolution=64, ds_rate=2):
@@ -22,11 +31,22 @@ class Net(nn.Module):
         self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
         self.v_branch = V_Branch(resolution=self.ds_res, in_dim = 256*2)
         self.i_branch = I_Branch_Pair(resolution=self.ds_res, in_dim = 256*2)
-
+    def rotate_pts_batch(self,pts, rotation):
+            pts_shape = pts.shape
+            b = pts_shape[0]
+            
+            return (rotation[:,None,:,:]@pts.reshape(b,-1,3)[:,:,:,None]).squeeze().reshape(pts_shape)
+        
     def forward(self, inputs):
         #import pdb;pdb.set_trace()
         rgb1, rgb2 = inputs['rgb'][:,0,:,:], inputs['rgb'][:,1,:,:]
         pts1, pts2 = inputs['pts'][:,0,:,:], inputs['pts'][:,1,:,:]
+        rotation_ref = inputs['rotation_ref']
+        #pts1 = self.rotate_pts_batch(pts1, rotation_ref)
+        #pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
+        pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
+        
+        #plot_pt(pts2[0].cpu().numpy())
         dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
         dis_map2, rgb_map2 = self.feat2smap(pts2, rgb2)
         # dis_map = torch.cat([dis_map1, dis_map2], axis = 1)
@@ -64,7 +84,7 @@ class Loss(nn.Module):
     def forward(self, pred, gt):
         rho_prob = pred['rho_prob']
         rho_label = F.one_hot(gt['rho_label'].squeeze(1), num_classes=rho_prob.size(1)).float()
-        
+        #import pdb;pdb.set_trace()
         rho_loss = self.sfloss(rho_prob, rho_label).mean()
         pred_rho = torch.max(torch.sigmoid(rho_prob),1)[1]
         rho_acc = (pred_rho.long() == gt['rho_label'].squeeze(1).long()).float().mean() * 100.0

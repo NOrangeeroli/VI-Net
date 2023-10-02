@@ -254,6 +254,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 
                 reference_pts = ref_data['pts'].cuda()
                 reference_rgb = ref_data['rgb'].cuda()
+                reference_rotation = ref_data['rotation_label'].cuda()
 
 
 
@@ -269,10 +270,11 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 inputs['pts'] = torch.stack([inputs['pts'], reference_pts],dim = 1).float()
 
                 inputs['rgb'] = torch.stack([inputs['rgb'], reference_rgb],dim = 1).float()
+                inputs['rotation_ref'] = reference_rotation
                 # import pdb;pdb.set_trace()
                 end_points = r_model(inputs)
                 pred_rotation = end_points['pred_rotation']
-                pred_rotation = pred_rotation@ref_data['rotation_label'].cuda().float()
+                #pred_rotation = pred_rotation@ref_data['rotation_label'].cuda().float()
                 pred_rotation = pred_rotation[:,:,(1,2,0)]
                 dets = pred_rotation.det()
                 assert torch.allclose(dets, torch.ones_like(dets))
