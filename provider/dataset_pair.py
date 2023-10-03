@@ -521,7 +521,7 @@ class TrainingDataset(Dataset):
 
 
             return pts, rgb, translation, rotation, size, cat_id, asym_flag, \
-                rmin, rmax, cmin, cmax, choose, rgb_raw.copy(), pts_raw.copy(), mask.copy(), 
+                rmin, rmax, cmin, cmax, choose, rgb_raw.copy(), pts_raw.copy(), mask.copy() 
         else: 
             assert False
 
@@ -570,13 +570,15 @@ class TrainingDataset(Dataset):
         if tuple_instance is None:
             return None
 
-        pts, rgb, translation, rotation, size, cat_id, asym_flag, rmin, rmax, cmin, cmax, choose, rgb_raw = tuple_instance
         
+        pts, rgb, translation, rotation, size, cat_id, asym_flag, \
+                rmin, rmax, cmin, cmax, choose, rgb_raw, pts_raw, mask = tuple_instance
         
         ret_dict = {}
         ret_dict['pts'] = torch.FloatTensor(pts)
         ret_dict['rgb'] = torch.FloatTensor(rgb)
         ret_dict['rgb_raw'] = torch.FloatTensor(rgb_raw)
+        ret_dict['pts_raw'] = torch.FloatTensor(pts_raw)
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['translation_label'] = torch.FloatTensor(translation)
         ret_dict['size_label'] = torch.FloatTensor(size)
@@ -586,6 +588,7 @@ class TrainingDataset(Dataset):
         ret_dict['cmin'] = torch.IntTensor([cmin]).long()
         ret_dict['cmax'] = torch.IntTensor([cmax]).long()
         ret_dict['choose'] = torch.IntTensor(choose).long()
+        ret_dict['mask'] = torch.IntTensor(mask).long()
         return ret_dict
     def get_ref_data(self, clss, indexes):
         data_list = []
@@ -618,6 +621,9 @@ class TestDataset():
         self.resolution = resolution
         self.data_dir = config.data_dir
         self.sample_num = config.sample_num
+        self.match_sample_num = 128
+        self.raw_size = 840
+        self.num_patches = 60
 
         result_pkl_list = glob.glob(os.path.join(self.data_dir, 'detection', dataset, 'results_*.pkl'))
         self.result_pkl_list = sorted(result_pkl_list)
@@ -772,25 +778,31 @@ class TestDataset():
             
             flag_instance = torch.zeros(num_instance) == 1
             for j in range(num_instance):
+                
                 inst_mask = 255 * pred_mask[:, :, j].astype('uint8')
                 mask = inst_mask > 0
                 mask = np.logical_and(mask, depth>0)
                 if np.sum(mask) > 16:
-                    mask = mask[rmin:rmax, cmin:cmax]
                     rmin, rmax, cmin, cmax = get_bbox_from_mask(mask)
-                    choose = mask.flatten().nonzero()[0]
                     cat_id = pred_data['pred_class_ids'][j] - 1 # convert to 0-indexed
+
                     pts_raw = pts[rmin:rmax, cmin:cmax, :]
                     rgb_raw = rgb[rmin:rmax, cmin:cmax, :]
-                    rgb_raw = np.array(rgb_raw).astype(np.float32) / 255.0
-                    
-                    instance_rgb = rgb_raw.copy().reshape((-1, 3))[choose, :] 
+                    mask = mask[rmin:rmax, cmin:cmax]
+                    choose = mask.flatten().nonzero()[0]
+                    # if path == '../../data/NOCS/detection/REAL275/results_test_scene_1_0000.pkl':
+                    #     import pdb;pdb.set_trace()
+
+                    pts_raw = np.where((mask == 0)[:,:,None],np.nan, pts_raw)
                     
 
-                    center = np.mean(pts_raw, axis=0)
-                    pts_raw = pts_raw - center[np.newaxis,np.newaxis, :]
                     instance_pts = pts_raw.reshape((-1, 3))[choose, :].copy()
-
+                    instance_rgb = rgb_raw.copy()
+                    instance_rgb = np.array(instance_rgb).astype(np.float32).reshape((-1, 3))[choose, :] / 255.0
+                    
+                    center = np.mean(instance_pts, axis=0)
+                    instance_pts = instance_pts - center[np.newaxis, :]
+                    pts_raw = pts_raw - center[np.newaxis,np.newaxis, :]
                     if instance_pts.shape[0] <= self.sample_num:
                         choose_idx = np.random.choice(np.arange(instance_pts.shape[0]), self.sample_num)
                     else:
@@ -798,12 +810,10 @@ class TestDataset():
                     instance_pts = instance_pts[choose_idx, :]
                     instance_rgb = instance_rgb[choose_idx, :]
 
-                    pts_raw = np.where((mask == 0)[:,:,None],np.nan, pts_raw)
-                    rgb_raw = cv2.resize(rgb_raw, dsize=(840,840), interpolation=cv2.INTER_NEAREST)
-                    pts_raw = np.where((mask == 0)[:,:,None],np.nan, pts_raw)
-                    pts_raw = cv2.resize(pts_raw, dsize=(60,60), interpolation=cv2.INTER_NEAREST)
+                    
+                    rgb_raw = cv2.resize(rgb_raw, dsize=(self.raw_size,self.raw_size), interpolation=cv2.INTER_NEAREST)
+                    pts_raw = cv2.resize(pts_raw, dsize=(self.num_patches,self.num_patches), interpolation=cv2.INTER_NEAREST)
                     mask = np.logical_not(np.isnan(pts_raw)).all(axis = -1)
-                    # choose
                     choose = mask.flatten().nonzero()[0]
                     if len(choose)<=0:
                         return None
@@ -813,15 +823,14 @@ class TestDataset():
                         choose_idx = np.random.choice(np.arange(len(choose)), self.sample_num, replace=False)
                     choose = choose[choose_idx]
 
-
+                    all_pts_raw.append(torch.FloatTensor(pts_raw))
+                    all_rgb_raw.append(torch.FloatTensor(rgb_raw))
+                    all_choose.append(torch.IntTensor(choose).long())
+                    all_mask.append(torch.IntTensor(mask).long())
                     all_pts.append(torch.FloatTensor(instance_pts))
                     all_rgb.append(torch.FloatTensor(instance_rgb))
                     all_center.append(torch.FloatTensor(center))
                     all_cat_ids.append(torch.IntTensor([cat_id]).long())
-                    all_pts_raw.append(torch.FloatTensor(pts_raw))
-                    all_rgb_raw.append(torch.FloatTensor(rgb_raw))
-                    all_choose.append(torch.IntTensor(choose).long())
-                    all_mask.append(torch.IntTensor(mask.int()).long())
                     flag_instance[j] = 1
 
             ret_dict = {}
