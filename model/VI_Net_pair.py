@@ -13,7 +13,10 @@ def plot_pt(pt):
     cloud = pv.PolyData(pt)
     mesh = cloud.delaunay_2d()
     plotter = pv.Plotter()
+    
     plotter.add_mesh(mesh, color='white')
+    _ = plotter.add_axes(box=True)
+    
     plotter.show()
      
 
@@ -45,6 +48,7 @@ class Net(nn.Module):
         #pts1 = self.rotate_pts_batch(pts1, rotation_ref)
         #pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
         pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
+        #import pdb;pdb.set_trace()
         
         #plot_pt(pts2[0].cpu().numpy())
         dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
