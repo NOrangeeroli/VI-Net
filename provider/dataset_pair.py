@@ -359,15 +359,15 @@ class TrainingDataset(Dataset):
             rotation_angle_label  = np.arccos(cos)
             ret_dict['rotation_angle_label'] = torch.FloatTensor([rotation_angle_label])
         ret_dict['rgb'] = torch.FloatTensor(np.stack([rgb_first, rgb_second],axis = 0))
-        ret_dict['rgb_raw'] = torch.stack([rgb_raw_first, rgb_raw_second],dim = 0)
-        ret_dict['pts_raw'] = torch.stack([pts_raw_first, pts_raw_second],dim = 0)
+        ret_dict['rgb_raw'] = torch.FloatTensor(np.stack([rgb_raw_first, rgb_raw_second],axis = 0))
+        ret_dict['pts_raw'] = torch.FloatTensor(np.stack([pts_raw_first, pts_raw_second],axis = 0))
         ret_dict['pts'] = torch.FloatTensor(np.stack([pts_first, pts_second],axis = 0))
         # ret_dict['rmin'] = torch.IntTensor([rmin_first, rmin_second]).long()
         # ret_dict['rmax'] = torch.IntTensor([rmax_first, rmax_second]).long()
         # ret_dict['cmin'] = torch.IntTensor([cmin_first, cmin_second]).long()
         # ret_dict['cmax'] = torch.IntTensor([cmax_first, cmax_second]).long()
         ret_dict['choose'] = torch.IntTensor(np.stack([choose_first, choose_second], axis = 0)).long()
-        ret_dict['mask'] = torch.stack([mask_first, mask_second], dim = 0).long()
+        ret_dict['mask'] = torch.IntTensor(np.stack([mask_first, mask_second], axis = 0)).long()
         
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['asym_flag'] = torch.FloatTensor([asym_flag])
@@ -408,23 +408,25 @@ class TrainingDataset(Dataset):
         rmin, rmax, cmin, cmax = get_bbox(gts['bboxes'][instance_id])
         mask = np.equal(mask, gts['instance_ids'][instance_id])
         mask = np.logical_and(mask , depth > 0)
+        mask = mask[rmin:rmax, cmin:cmax]
 
         
 
         # pts
-        h, w = depth.shape
+        h, w = mask.shape
         # pts2 = depth.copy()[rmin:rmax, cmin:cmax].reshape((-1))[choose] / self.norm_scale
         # pts0 = (self.xmap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cx) * pts2 / cam_fx
         # pts1 = (self.ymap[rmin:rmax, cmin:cmax].reshape((-1))[choose] - cam_cy) * pts2 / cam_fy
         # pts = np.transpose(np.stack([pts0, pts1, pts2]), (1,0)).astype(np.float32) # 480*640*3
         # pts = pts #+ np.clip(0.001*np.random.randn(pts.shape[0], 3), -0.005, 0.005)
 
-        pts2_raw = (depth.copy()).reshape((-1))/ self.norm_scale
-        pts0_raw = (self.xmap.reshape((-1)) - cam_cx) * pts2_raw / cam_fx
-        pts1_raw = (self.ymap.reshape((-1))- cam_cy) * pts2_raw / cam_fy
+        pts2_raw = (depth.copy()[rmin:rmax, cmin:cmax]).reshape((-1))/ self.norm_scale
+        pts0_raw = (self.xmap[rmin:rmax, cmin:cmax].reshape((-1)) - cam_cx) * pts2_raw / cam_fx
+        pts1_raw = (self.ymap[rmin:rmax, cmin:cmax].reshape((-1))- cam_cy) * pts2_raw / cam_fy
         pts_raw = np.stack([pts0_raw, pts1_raw, pts2_raw],axis = -1).astype(np.float32) # 480*640*3
-        pts_raw = pts_raw + np.clip(0.001*np.random.randn(pts_raw.shape[0], 3), -0.005, 0.005)
+        pts_raw = pts_raw + np.clip(0.001*np.random.randn(pts_raw.shape[0],3), -0.005, 0.005)
         pts_raw = pts_raw.reshape((h,w,3)) 
+        pts_raw = np.where((mask == 0)[:,:,None],np.nan, pts_raw)
 
         
 
@@ -433,7 +435,7 @@ class TrainingDataset(Dataset):
         # rgb
         rgb = cv2.imread(img_path + '_color.png')[:, :, :3]
         rgb = rgb[:, :, ::-1] #480*640*3
-        rgb_raw = rgb
+        rgb_raw = rgb[rmin:rmax, cmin:cmax, :]
         rgb_raw = self.colorjitter(Image.fromarray(np.uint8(rgb_raw)))
         rgb_raw = np.array(rgb_raw)
 
@@ -441,7 +443,7 @@ class TrainingDataset(Dataset):
         if img_type == 'syn':
             rgb_raw = rgb_add_noise(rgb_raw)
         rgb_raw = rgb_raw.astype(np.float32)/ 255.0
-        #rgb = rgb_raw[rmin:rmax, cmin:cmax, :].reshape((-1,3))[choose, :] 
+        
         
     
         
@@ -510,10 +512,8 @@ class TrainingDataset(Dataset):
             assert np.isclose(np.linalg.det(rotation),1)
             
 
-            pts_raw = np.where((mask == 0)[:,:,None],np.nan, pts_raw)
-            pts_raw = pts_raw[rmin:rmax, cmin:cmax]
-            rgb_raw = rgb_raw[rmin:rmax, cmin:cmax]
-            mask = mask[rmin:rmax, cmin:cmax]
+            
+            
             # choose
             choose = mask.flatten().nonzero()[0]
             
@@ -527,22 +527,29 @@ class TrainingDataset(Dataset):
             pts = pts_raw.reshape((-1,3))[choose]
             rgb = rgb_raw.reshape((-1,3))[choose]
             
-            rgb_raw = torch.FloatTensor(rgb_raw).permute(2,0,1).cuda()
-            pts_raw = torch.FloatTensor(pts_raw).permute(2,0,1).cuda()
-            rgb_raw = F.interpolate(rgb_raw[None,:,:,:], mode = 'nearest', size = (self.raw_size,self.raw_size)).squeeze().permute(1,2,0)
-            assert rgb_raw.shape == torch.Size([self.raw_size, self.raw_size, 3])
-            pts_raw = F.interpolate(pts_raw[None,:,:,:], mode = 'nearest', size = (self.num_patches,self.num_patches)).squeeze().permute(1,2,0)
-            assert pts_raw.shape == torch.Size([self.num_patches, self.num_patches, 3])
-            
-
-            mask = pts_raw.isnan().logical_not().all(dim = -1)
 
 
             
+            rgb_raw = cv2.resize(rgb_raw, dsize=(self.raw_size,self.raw_size), interpolation=cv2.INTER_NEAREST)
+            pts_raw = cv2.resize(pts_raw, dsize=(self.num_patches,self.num_patches), interpolation=cv2.INTER_NEAREST)
+
+
+            # rgb_raw = torch.FloatTensor(rgb_raw).permute(2,0,1).cuda()
+            # pts_raw = torch.FloatTensor(pts_raw).permute(2,0,1).cuda()
+            # rgb_raw = F.interpolate(rgb_raw[None,:,:,:], mode = 'nearest', size = (self.raw_size,self.raw_size)).squeeze().permute(1,2,0)
+            # assert rgb_raw.shape == torch.Size([self.raw_size, self.raw_size, 3])
+            # pts_raw = F.interpolate(pts_raw[None,:,:,:], mode = 'nearest', size = (self.num_patches,self.num_patches)).squeeze().permute(1,2,0)
+            # assert pts_raw.shape == torch.Size([self.num_patches, self.num_patches, 3])
+            
+
+            mask = np.logical_not(np.isnan(pts_raw)).all(axis = -1)
+
+
             
             
             
-            choose = mask.cpu().numpy().flatten().nonzero()[0]
+            
+            choose = mask.flatten().nonzero()[0]
             if len(choose)<=0:
                 return None
             elif len(choose) <= self.match_sample_num:
@@ -613,8 +620,8 @@ class TrainingDataset(Dataset):
         ret_dict = {}
         ret_dict['pts'] = torch.FloatTensor(pts)
         ret_dict['rgb'] = torch.FloatTensor(rgb)
-        ret_dict['rgb_raw'] = rgb_raw
-        ret_dict['pts_raw'] = pts_raw
+        ret_dict['rgb_raw'] = torch.FloatTensor(rgb_raw)
+        ret_dict['pts_raw'] = torch.FloatTensor(pts_raw)
         ret_dict['category_label'] = torch.IntTensor([cat_id]).long()
         ret_dict['translation_label'] = torch.FloatTensor(translation)
         ret_dict['size_label'] = torch.FloatTensor(size)
@@ -624,7 +631,7 @@ class TrainingDataset(Dataset):
         # ret_dict['cmin'] = torch.IntTensor([cmin]).long()
         # ret_dict['cmax'] = torch.IntTensor([cmax]).long()
         ret_dict['choose'] = torch.IntTensor(choose).long()
-        ret_dict['mask'] = mask.long()
+        ret_dict['mask'] = torch.IntTensor(mask).long()
         return ret_dict
     def get_ref_data(self, clss, indexes):
         data_list = []
@@ -855,19 +862,17 @@ class TestDataset():
                     instance_pts = instance_pts[choose_idx, :]
                     instance_rgb = instance_rgb[choose_idx, :]
 
-                    rgb_raw = torch.FloatTensor(rgb_raw.copy()).permute(2,0,1).cuda()
-                    pts_raw = torch.FloatTensor(pts_raw.copy()).permute(2,0,1).cuda()
                     
-                    rgb_raw = F.interpolate(rgb_raw[None,:,:,:], mode = 'nearest', size = (self.raw_size,self.raw_size)).squeeze().permute(1,2,0)
-                    assert rgb_raw.shape == torch.Size([self.raw_size, self.raw_size, 3])
-                    # pts_raw = F.interpolate(pts_raw[None,:,:,:], mode = 'bilinear', size = (self.raw_size,self.raw_size)).squeeze().permute(1,2,0)
-                    # assert pts_raw.shape == torch.Size([self.raw_size, self.raw_size, 3])
-                    # mask = F.interpolate(mask[None,:,:,:], mode = 'nearest', size = (self.raw_size,self.raw_size)).int().squeeze()
-                    # assert mask.shape == torch.Size([self.raw_size, self.raw_size])
+                    rgb_raw = cv2.resize(rgb_raw, dsize=(self.raw_size,self.raw_size), interpolation=cv2.INTER_NEAREST)
+                    pts_raw = cv2.resize(pts_raw, dsize=(self.num_patches,self.num_patches), interpolation=cv2.INTER_NEAREST)
 
-                    pts_raw = F.interpolate(pts_raw[None,:,:,:], mode = 'nearest', size = (self.num_patches,self.num_patches)).squeeze().permute(1,2,0)
-                    mask = pts_raw.isnan().logical_not().all(dim = -1)
-                    choose = mask.cpu().numpy().flatten().nonzero()[0]
+                    # rgb_raw = torch.FloatTensor(rgb_raw.copy()).permute(2,0,1).cuda()
+                    # pts_raw = torch.FloatTensor(pts_raw.copy()).permute(2,0,1).cuda()
+                    
+                    # rgb_raw = F.interpolate(rgb_raw[None,:,:,:], mode = 'nearest', size = (self.raw_size,self.raw_size)).squeeze().permute(1,2,0)
+                    # assert rgb_raw.shape == torch.Size([self.raw_size, self.raw_size, 3])
+                    mask = np.logical_not(np.isnan(pts_raw)).all(axis = -1)
+                    choose = mask.flatten().nonzero()[0]
                     if len(choose)<=0:
                         return None
                     elif len(choose) <= self.match_sample_num:
@@ -876,10 +881,10 @@ class TestDataset():
                         choose_idx = np.random.choice(np.arange(len(choose)), self.match_sample_num, replace=False)
                     choose = choose[choose_idx]
 
-                    all_pts_raw.append(pts_raw)
-                    all_rgb_raw.append(rgb_raw)
-                    all_choose.append(choose)
-                    all_mask.append(mask)
+                    all_pts_raw.append(torch.FloatTensor(pts_raw))
+                    all_rgb_raw.append(torch.FloatTensor(rgb_raw))
+                    all_choose.append(torch.IntTensor(choose).long())
+                    all_mask.append(torch.IntTensor(mask).long())
                     all_pts.append(torch.FloatTensor(instance_pts))
                     all_rgb.append(torch.FloatTensor(instance_rgb))
                     all_center.append(torch.FloatTensor(center))
@@ -913,6 +918,7 @@ class TestDataset():
                 ret_dict['pred_class_ids'] = torch.tensor(pred_data['pred_class_ids'])[flag_instance==1]
                 ret_dict['pred_bboxes'] = torch.tensor(pred_data['pred_bboxes'])[flag_instance==1]
                 ret_dict['pred_scores'] = torch.tensor(pred_data['pred_scores'])[flag_instance==1]
+                # import pdb;pdb.set_trace()
 
             return ret_dict
         else:
