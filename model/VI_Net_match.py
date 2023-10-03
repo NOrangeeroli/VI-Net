@@ -38,6 +38,7 @@ class Net(nn.Module):
         self.stride = 14
         self.img_size = 840
         self.num_patches = 60
+        self.match_code = torch.IntTensor([0]*2048+ list(range(1,257))).tile((32,1))[:,:,None].cuda()
         
 
 
@@ -55,7 +56,7 @@ class Net(nn.Module):
         # data processing
         self.feat2smap = Feat2Smap(self.res)
 
-        self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
+        self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=4)
         self.v_branch = V_Branch(resolution=self.ds_res, in_dim = 256*2)
         self.i_branch = I_Branch_Pair(resolution=self.ds_res, in_dim = 256*2)
    
@@ -80,9 +81,10 @@ class Net(nn.Module):
         rgb_raw = rgb_raw.permute(0,3,1,2)
         
         rgb_raw = self.extractor_preprocess(rgb_raw)
-        
+        #import pdb;pdb.set_trace()
         
         with torch.no_grad():
+            #dino_feature = self.extractor.model(rgb_raw)
         
             dino_feature = self.extractor.extract_descriptors(rgb_raw, layer = self.extractor_layer, facet = self.extractor_facet )
         
@@ -252,28 +254,28 @@ class Net(nn.Module):
         
         
         #print('extract_feature')
-        #dino_feature = self.extract_feature(rgb_raw) 
+        dino_feature = self.extract_feature(rgb_raw) 
         
         
 
         
        
         
-        #dino_feature1, dino_feature2 = dino_feature[:b], dino_feature[b:]
+        dino_feature1, dino_feature2 = dino_feature[:b], dino_feature[b:]
        
 
 
         
         #print('matching')
-        # matchpair1, matchpair2 = self.matcher(dino_feature1.permute(0,2,3,1), 
-        #                             dino_feature2.permute(0,2,3,1), 
-        #                             mask1[:,:,:,None], 
-        #                             mask2[:,:,:,None],
-        #                             choose_backup1, choose_backup2)
+        matchpair1, matchpair2 = self.matcher(dino_feature1.permute(0,2,3,1), 
+                                    dino_feature2.permute(0,2,3,1), 
+                                    mask1[:,:,:,None], 
+                                    mask2[:,:,:,None],
+                                    choose_backup1, choose_backup2)
         
         
-        # self1, match1 = matchpair1[:,:,0], matchpair1[:,:,1]
-        # self2, match2 = matchpair2[:,:,0], matchpair2[:,:,1]
+        self1, match1 = matchpair1[:,:,0], matchpair1[:,:,1]
+        self2, match2 = matchpair2[:,:,0], matchpair2[:,:,1]
 
         
 
@@ -281,19 +283,24 @@ class Net(nn.Module):
         
         
         
-        # pts_raw1 = pts_raw1.reshape(b,self.num_patches * self.num_patches,3)
-        # pts_raw2 = pts_raw2.reshape(b,self.num_patches * self.num_patches,3)
-        # rgb_raw1 = rgb_raw1.reshape(b,self.num_patches * self.num_patches,3)
-        # rgb_raw2 = rgb_raw2.reshape(b,self.num_patches * self.num_patches,3)
+        pts_raw1 = pts_raw1.reshape(b,self.num_patches * self.num_patches,3)
+        pts_raw2 = pts_raw2.reshape(b,self.num_patches * self.num_patches,3)
+        rgb_raw = F.interpolate(rgb_raw.permute(0,3,1,2), 
+                                size = (self.num_patches , self.num_patches),  mode = 'nearest').permute(0,2,3,1)
+        rgb_raw1, rgb_raw2 = rgb_raw[:b], rgb_raw[b:]
+        rgb_raw1 = rgb_raw1.reshape(b,self.num_patches * self.num_patches,3)
+        rgb_raw2 = rgb_raw2.reshape(b,self.num_patches * self.num_patches,3)
 
 
-        # self_pts1 = pts_raw1[torch.arange(b)[:,None], self1,:]
-        # self_rgb1 = rgb_raw1[torch.arange(b)[:,None], self1,:]
-        # match_pts1 = pts_raw2[torch.arange(b)[:,None], match1,:]
+        self_pts1 = pts_raw1[torch.arange(b)[:,None], self1,:]
+        self_rgb1 = rgb_raw1[torch.arange(b)[:,None], self1,:]
+        match_pts1 = pts_raw2[torch.arange(b)[:,None], match1,:]
+        match_rgb1 = rgb_raw2[torch.arange(b)[:,None], match1,:]
 
-        # self_pts2 = pts_raw2[torch.arange(b)[:,None], self2,:]
-        # self_rgb2 = rgb_raw1[torch.arange(b)[:,None], self2,:]
-        # match_pts2 = pts_raw1[torch.arange(b)[:,None], match2,:]
+        self_pts2 = pts_raw2[torch.arange(b)[:,None], self2,:]
+        self_rgb2 = rgb_raw1[torch.arange(b)[:,None], self2,:]
+        match_pts2 = pts_raw1[torch.arange(b)[:,None], match2,:]
+        match_rgb2 = rgb_raw1[torch.arange(b)[:,None], match2,:]
 
         
 
@@ -303,30 +310,34 @@ class Net(nn.Module):
 
 
 
-
+        
 
 
         # match_pts1 = torch.concatenate([pts1, match_pts1], dim = -2)
         # match_pts2 = torch.concatenate([pts2, match_pts2], dim = -2)
 
-        # pts1 = torch.concatenate([pts1, self_pts1], dim = -2)
-        # pts2 = torch.concatenate([pts2, self_pts2], dim = -2)
+        pts1 = torch.concatenate([pts1, self_pts1, match_pts2], dim = -2)
+        pts2 = torch.concatenate([pts2, match_pts1, self_pts2], dim = -2)
 
         # import pdb;pdb.set_trace()
 
-        # drift1 =  match_pts1 - pts1
-        # drift2 =  match_pts2 - pts2
+        
         
         
         # rgb1 = torch.concatenate([rgb1, self_rgb1], dim = -2)
         # rgb2 = torch.concatenate([rgb2, self_rgb2], dim = -2)
-        
+        rgb1 = torch.concatenate([rgb1, self_rgb1, match_rgb2], dim = -2)
+        rgb2 = torch.concatenate([rgb2, match_rgb1, self_rgb2], dim = -2)
+
+        #match_code = torch.IntTensor([0]*2048+ list(range(1,257))).tile((rgb1.shape[0],1))[:,:,None].cuda()
         
 
-        # dis_map1, rgb_map1 = self.feat2smap(pts1, torch.concatenate([rgb1, drift1], dim = -1))
-        # dis_map2, rgb_map2 = self.feat2smap(pts2, torch.concatenate([rgb2, drift2], dim = -1))
-        dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
-        dis_map2, rgb_map2 = self.feat2smap(pts2, rgb2)
+        dis_map1, rgb_map1 = self.feat2smap(pts1, torch.concatenate([rgb1, self.match_code], dim = -1))
+        dis_map2, rgb_map2 = self.feat2smap(pts2, torch.concatenate([rgb2, self.match_code], dim = -1))
+
+
+        # dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
+        # dis_map2, rgb_map2 = self.feat2smap(pts2, rgb2)
        
         
         # backbone
