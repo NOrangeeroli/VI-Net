@@ -10,6 +10,8 @@ import pickle as pkl
 import numpy as np
 import psutil
 from file_utils import get_open_fds
+import cv2
+import torch.nn.functional as F
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -112,7 +114,7 @@ if __name__ == "__main__":
     
     from extractor_dino import ViTExtractor
     from torchvision import transforms
-    extractor = ViTExtractor('dinov2_vits14', 14, device = 'cuda')
+    extractor = ViTExtractor('dinov2_vits14', device = 'cuda', stride = 7)
     extractor_preprocess = transforms.Normalize(mean=extractor.mean, std=extractor.std)
     def extract_feature(rgb_raw):
         rgb_raw = rgb_raw.permute(0,3,1,2)
@@ -123,8 +125,8 @@ if __name__ == "__main__":
         with torch.no_grad():
         
             dino_feature = extractor.extract_descriptors(rgb_raw, layer = 11, facet = 'token' )
-        
-        dino_feature = dino_feature.reshape(dino_feature.shape[0],6720//14,6720//14,-1)
+        import pdb;pdb.set_trace()
+        dino_feature = dino_feature.reshape(dino_feature.shape[0],3360//14,3360//14,-1)
         
         return dino_feature.contiguous()
     
@@ -132,15 +134,28 @@ if __name__ == "__main__":
         for i, data in enumerate(train_dataloder):
             
             with torch.no_grad():
-                features = extract_feature(data['rgb']).cpu()
-            import pdb;pdb.set_trace()
-
+                features = extract_feature(data['rgb'].cuda()).cpu()
+            
+            
 
             num_instance = features.shape[0]
-            #import pdb;pdb.set_trace()
             
+            #cv2.resize(rgb, dsize=(840,840), interpolation=cv2.INTER_CUBIC)
+            # features  = F.interpolate(features.permute(0,3,1,2),
+            #                           size = (480,640), 
+            #                           mode = 'bilinear').permute(0,2,3,1).cpu()
             
 
+
+            
+            for path, feature in zip(data['image_path'], features):
+                if 'train' in path:
+                    path = path.replace('train','train_feature')+'.npy'
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path, 'wb') as f:
+                        np.save(f, feature)
+            
+            import pdb;pdb.set_trace()
 
 
             t.set_description(
