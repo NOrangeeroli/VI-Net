@@ -11,7 +11,19 @@ from smap_utils import Feat2Smap
 from rotation_utils import angle_of_rotation
 
 from time import time
+def plot_pt(pt,index):
+    import pyvista as pv
+    import matplotlib.pyplot as plt
+    cloud = pv.PolyData(pt[index].cpu().numpy())
+    mesh = cloud.delaunay_2d()
+    plotter = pv.Plotter()
+    plotter.add_mesh(mesh, color='white')
+    plotter.show()
 
+def plot_rgb(rgb, index):
+    from matplotlib import pyplot as plt
+    plt.imshow(rgb[index].reshape(60,60,-1).cpu().numpy(), interpolation='nearest')
+    plt.show()
 
 
 
@@ -43,10 +55,15 @@ class Net(nn.Module):
         # data processing
         self.feat2smap = Feat2Smap(self.res)
 
-        self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3*2)
+        self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
         self.v_branch = V_Branch(resolution=self.ds_res, in_dim = 256*2)
         self.i_branch = I_Branch_Pair(resolution=self.ds_res, in_dim = 256*2)
    
+    def rotate_pts_batch(self,pts, rotation):
+            pts_shape = pts.shape
+            b = pts_shape[0]
+
+            return (rotation[:,None,:,:]@pts.reshape(b,-1,3)[:,:,:,None]).squeeze().reshape(pts_shape)
 
     def coordinate_to_choose(self, coordinate, h, w):
         r,c = coordinate[:,:,0], coordinate[:,:,1]
@@ -211,8 +228,7 @@ class Net(nn.Module):
         
     def forward(self, inputs):
         
-        #ts = time()
-        #print('START')
+        
         
         rgb_raw1, rgb_raw2 = inputs['rgb_raw'][:,0], inputs['rgb_raw'][:,1]
         
@@ -221,102 +237,63 @@ class Net(nn.Module):
 
         choose_backup1, choose_backup2 = inputs['choose'][:,0], inputs['choose'][:,1]
         
-        # pts_raw1 = F.interpolate(pts_raw1.permute(0,3,1,2), mode = 'bilinear', size = (self.num_patches,self.num_patches)).permute(0,2,3,1)
-        # pts_raw2 = F.interpolate(pts_raw2.permute(0,3,1,2), mode = 'bilinear', size = (self.num_patches,self.num_patches)).permute(0,2,3,1)
-        
-        mask1 = pts_raw1.isnan().logical_not().all(dim = -1)
-        mask2 = pts_raw2.isnan().logical_not().all(dim = -1)
-        # choose1, choose2 = inputs['choose'][:,0,:], inputs['choose'][:,1,:]
-        # rmax1, rmax2 = inputs['rmax'][:,0], inputs['rmax'][:,1]
-        # rmin1, rmin2 = inputs['rmin'][:,0], inputs['rmin'][:,1]
-        # cmax1, cmax2 = inputs['cmax'][:,0], inputs['cmax'][:,1]
-        # cmin1, cmin2 = inputs['cmin'][:,0], inputs['cmin'][:,1]
+       
+        mask1 ,mask2 = inputs['mask'][:,0], inputs['mask'][:,1]
+       
         
         b,_,_,_ = pts_raw1.shape
-        # mask1, mask2 = inputs['mask'][:,0,:,:], inputs['mask'][:,1,:,:]
-
+        
         rgb1, rgb2 = inputs['rgb'][:,0], inputs['rgb'][:,1]
         pts1, pts2 = inputs['pts'][:,0], inputs['pts'][:,1]
+        rotation_ref = inputs['rotation_ref']
 
-        
-        # assert mask1.shape == rgb_raw1.shape[:3]
-        
-        
-        # mask1 = mask1[:,None,:,:].float()
-        # mask2 = mask2[:,None,:,:].float()
-        # b,_,h,w = mask1.shape
-        # assert h == w == self.img_size
-        
-        # mask1_resize = F.interpolate(mask1, mode = 'nearest', size = (self.num_patches, self.num_patches))
-        # mask2_resize = F.interpolate(mask2, mode = 'nearest', size = (self.num_patches, self.num_patches))
+        pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
        
         
         
         #print('extract_feature')
-        dino_feature = self.extract_feature(rgb_raw) 
+        #dino_feature = self.extract_feature(rgb_raw) 
         
         
 
         
        
         
-        dino_feature1, dino_feature2 = dino_feature[:b], dino_feature[b:]
+        #dino_feature1, dino_feature2 = dino_feature[:b], dino_feature[b:]
        
 
 
         
         #print('matching')
-        matchpair1, matchpair2 = self.matcher(dino_feature1.permute(0,2,3,1), 
-                                    dino_feature2.permute(0,2,3,1), 
-                                    mask1[:,:,:,None], 
-                                    mask2[:,:,:,None],
-                                    choose_backup1, choose_backup2)
+        # matchpair1, matchpair2 = self.matcher(dino_feature1.permute(0,2,3,1), 
+        #                             dino_feature2.permute(0,2,3,1), 
+        #                             mask1[:,:,:,None], 
+        #                             mask2[:,:,:,None],
+        #                             choose_backup1, choose_backup2)
         
-        # matchpair1 = self.scale_up_choose(matchpair1, 
-        #                              self.num_patches, self.num_patches, 
-        #                              self.extractor_scale)
-        # matchpair2 = self.scale_up_choose(matchpair2, 
-        #                              self.num_patches, self.num_patches, 
-        #                              self.extractor_scale)
-        self1, match1 = matchpair1[:,:,0], matchpair1[:,:,1]
-        self2, match2 = matchpair2[:,:,0], matchpair2[:,:,1]
+        
+        # self1, match1 = matchpair1[:,:,0], matchpair1[:,:,1]
+        # self2, match2 = matchpair2[:,:,0], matchpair2[:,:,1]
 
         
 
         
-        # import matplotlib.image
-        # im1 = rgb_raw1[0].cpu().numpy()
-        # matplotlib.image.imsave('rgb1.png', im1.reshape(840,840,3))
-        # im2 = rgb_raw2[0].cpu().numpy()
-        # matplotlib.image.imsave('rgb2.png', im2.reshape(840,840,3))
-
-        rgb_raw1 = F.interpolate(rgb_raw1.permute(0,3,1,2), mode = 'bilinear', size = (self.num_patches,self.num_patches)).permute(0,2,3,1)
-        rgb_raw2 = F.interpolate(rgb_raw2.permute(0,3,1,2), mode = 'bilinear', size = (self.num_patches,self.num_patches)).permute(0,2,3,1)
-        # for i in range(0,1024,32):
-        #     im1 = rgb_raw1[0].cpu().numpy()
-        #     im1.reshape(-1,3)[self1[0,i]] = 0
-        #     matplotlib.image.imsave(f'{i}_1.png', im1.reshape(60,60,3))
-        #     im2 = rgb_raw2[0].cpu().numpy()
-        #     im2.reshape(-1,3)[match1[0,i]] = 0
-        #     matplotlib.image.imsave(f'{i}_2.png', im2.reshape(60,60,3))
-        # im1 = pts_raw1[0].cpu().numpy()
-        # matplotlib.image.imsave('pts1.png', im1.reshape(60,60,3))
-        # im2 = pts_raw2[0].cpu().numpy()
-        # matplotlib.image.imsave('pts2.png', im2.reshape(60,60,3))
         
-        pts_raw1 = pts_raw1.reshape(b,self.num_patches * self.num_patches,3)
-        pts_raw2 = pts_raw2.reshape(b,self.num_patches * self.num_patches,3)
-        rgb_raw1 = rgb_raw1.reshape(b,self.num_patches * self.num_patches,3)
-        rgb_raw2 = rgb_raw2.reshape(b,self.num_patches * self.num_patches,3)
+        
+        
+        # pts_raw1 = pts_raw1.reshape(b,self.num_patches * self.num_patches,3)
+        # pts_raw2 = pts_raw2.reshape(b,self.num_patches * self.num_patches,3)
+        # rgb_raw1 = rgb_raw1.reshape(b,self.num_patches * self.num_patches,3)
+        # rgb_raw2 = rgb_raw2.reshape(b,self.num_patches * self.num_patches,3)
 
 
-        self_pts1 = pts_raw1[torch.arange(b)[:,None], self1,:]
-        self_rgb1 = rgb_raw1[torch.arange(b)[:,None], self1,:]
-        match_pts1 = pts_raw2[torch.arange(b)[:,None], match1,:]
+        # self_pts1 = pts_raw1[torch.arange(b)[:,None], self1,:]
+        # self_rgb1 = rgb_raw1[torch.arange(b)[:,None], self1,:]
+        # match_pts1 = pts_raw2[torch.arange(b)[:,None], match1,:]
 
-        self_pts2 = pts_raw2[torch.arange(b)[:,None], self2,:]
-        self_rgb2 = rgb_raw1[torch.arange(b)[:,None], self2,:]
-        match_pts2 = pts_raw1[torch.arange(b)[:,None], match2,:]
+        # self_pts2 = pts_raw2[torch.arange(b)[:,None], self2,:]
+        # self_rgb2 = rgb_raw1[torch.arange(b)[:,None], self2,:]
+        # match_pts2 = pts_raw1[torch.arange(b)[:,None], match2,:]
 
         
 
@@ -329,25 +306,28 @@ class Net(nn.Module):
 
 
 
-        match_pts1 = torch.concatenate([pts1, match_pts1], dim = -2)
-        match_pts2 = torch.concatenate([pts2, match_pts2], dim = -2)
+        # match_pts1 = torch.concatenate([pts1, match_pts1], dim = -2)
+        # match_pts2 = torch.concatenate([pts2, match_pts2], dim = -2)
 
-        pts1 = torch.concatenate([pts1, self_pts1], dim = -2)
-        pts2 = torch.concatenate([pts2, self_pts2], dim = -2)
+        # pts1 = torch.concatenate([pts1, self_pts1], dim = -2)
+        # pts2 = torch.concatenate([pts2, self_pts2], dim = -2)
 
-        drift1 =  match_pts1 - pts1
-        drift2 =  match_pts2 - pts2
+        # import pdb;pdb.set_trace()
+
+        # drift1 =  match_pts1 - pts1
+        # drift2 =  match_pts2 - pts2
         
         
-        rgb1 = torch.concatenate([rgb1, self_rgb1], dim = -2)
-        rgb2 = torch.concatenate([rgb2, self_rgb2], dim = -2)
+        # rgb1 = torch.concatenate([rgb1, self_rgb1], dim = -2)
+        # rgb2 = torch.concatenate([rgb2, self_rgb2], dim = -2)
         
         
 
-        dis_map1, rgb_map1 = self.feat2smap(pts1, torch.concatenate([rgb1, drift1], dim = -1))
-        dis_map2, rgb_map2 = self.feat2smap(pts2, torch.concatenate([rgb2, drift2], dim = -1))
-        # dis_map = torch.cat([dis_map1, dis_map2], axis = 1)
-        # rgb_map = torch.cat([rgb_map1, rgb_map2], axis = 1)
+        # dis_map1, rgb_map1 = self.feat2smap(pts1, torch.concatenate([rgb1, drift1], dim = -1))
+        # dis_map2, rgb_map2 = self.feat2smap(pts2, torch.concatenate([rgb2, drift2], dim = -1))
+        dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
+        dis_map2, rgb_map2 = self.feat2smap(pts2, rgb2)
+       
         
         # backbone
         x1 = self.spherical_fpn(dis_map1, rgb_map1)
@@ -359,14 +339,11 @@ class Net(nn.Module):
         pred_vp_rot = self.v_branch._get_vp_rotation(rho_prob, phi_prob,{})
 
         # in-plane rotation
-        drift1 =  match_pts1 - (vp_rot[:,None,:,:] @ pts1[:,:,:,None]).squeeze()
+        # drift1 =  match_pts1 - (vp_rot[:,None,:,:] @ pts1[:,:,:,None]).squeeze()
         
-        drift2 =  (vp_rot[:,None,:,:] @ match_pts2[:,:,:,None]).squeeze() - pts2
+        # drift2 =  (vp_rot[:,None,:,:] @ match_pts2[:,:,:,None]).squeeze() - pts2
         
-        dis_map1, rgb_map1 = self.feat2smap(pts1, torch.concatenate([rgb1, drift1], dim = -1))
-        dis_map2, rgb_map2 = self.feat2smap(pts2, torch.concatenate([rgb2, drift2], dim = -1))
-        x1 = self.spherical_fpn(dis_map1, rgb_map1)
-        x2 = self.spherical_fpn(dis_map2, rgb_map2)
+        
         ip_rot = self.i_branch(x1, x2, vp_rot)
 
         outputs = {
