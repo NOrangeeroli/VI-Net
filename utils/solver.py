@@ -222,6 +222,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                     'pts': data['pts'][0].cuda(),
                     'rgb_raw': data['rgb_raw'][0].cuda(),
                     'choose': data['choose'][0].cuda(),
+                    'mask': data['mask'][0].cuda(),
                     'pts_raw': data['pts_raw'][0].cuda(),
                     'category_label': data['category_label'][0].cuda(),
                     
@@ -269,6 +270,8 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 reference_pts_raw = ref_data['pts_raw'].cuda()
                 reference_rgb_raw = ref_data['rgb_raw'].cuda()
                 reference_choose = ref_data['choose'].cuda()
+                reference_mask = ref_data['mask'].cuda()
+                reference_rotation = ref_data['rotation_label'].cuda()
 
 
 
@@ -287,11 +290,12 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 inputs['rgb_raw'] = torch.stack([inputs['rgb_raw'], reference_rgb_raw],dim = 1).float()
                 inputs['pts_raw'] = torch.stack([inputs['pts_raw'], reference_pts_raw],dim = 1).float()
                 inputs['choose'] = torch.stack([inputs['choose'], reference_choose],dim = 1).long()
-                
+                inputs['mask'] = torch.stack([inputs['mask'], reference_mask],dim = 1).long()
+                inputs['rotation_ref'] = reference_rotation
                 # import pdb;pdb.set_trace()
                 end_points = r_model(inputs)
                 pred_rotation = end_points['pred_rotation']
-                pred_rotation = pred_rotation@ref_data['rotation_label'].cuda().float()
+                #pred_rotation = pred_rotation@ref_data['rotation_label'].cuda().float()
                 pred_rotation = pred_rotation[:,:,(1,2,0)]
                 dets = pred_rotation.det()
                 assert torch.allclose(dets, torch.ones_like(dets))
