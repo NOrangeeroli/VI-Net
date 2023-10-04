@@ -18,6 +18,7 @@ def plot_pt(pt,index):
     mesh = cloud.delaunay_2d()
     plotter = pv.Plotter()
     plotter.add_mesh(mesh, color='white')
+    _ = plotter.add_axes(box=True)
     plotter.show()
 
 def plot_rgb(rgb, index):
@@ -250,7 +251,7 @@ class Net(nn.Module):
         rotation_ref = inputs['rotation_ref']
 
         pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
-       
+        import pdb;pdb.set_trace()
         
         
         #print('extract_feature')
@@ -329,11 +330,11 @@ class Net(nn.Module):
         rgb1 = torch.concatenate([rgb1, self_rgb1, match_rgb2], dim = -2)
         rgb2 = torch.concatenate([rgb2, match_rgb1, self_rgb2], dim = -2)
 
-        #match_code = torch.IntTensor([0]*2048+ list(range(1,257))).tile((rgb1.shape[0],1))[:,:,None].cuda()
+        match_code = torch.IntTensor([0]*2048+ list(range(1,257))).tile((rgb1.shape[0],1))[:,:,None].cuda()
         
 
-        dis_map1, rgb_map1 = self.feat2smap(pts1, torch.concatenate([rgb1, self.match_code], dim = -1))
-        dis_map2, rgb_map2 = self.feat2smap(pts2, torch.concatenate([rgb2, self.match_code], dim = -1))
+        dis_map1, rgb_map1 = self.feat2smap(pts1, torch.concatenate([rgb1, match_code], dim = -1))
+        dis_map2, rgb_map2 = self.feat2smap(pts2, torch.concatenate([rgb2, match_code], dim = -1))
 
 
         # dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
