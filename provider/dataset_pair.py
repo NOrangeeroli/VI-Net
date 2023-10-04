@@ -798,7 +798,8 @@ class TestDataset():
 
                     instance_pts = pts_raw.reshape((-1, 3))[choose, :].copy()
                     instance_rgb = rgb_raw.copy()
-                    instance_rgb = np.array(instance_rgb).astype(np.float32).reshape((-1, 3))[choose, :] / 255.0
+                    rgb_raw = np.array(rgb_raw.copy()).astype(np.float32) / 255.0
+                    instance_rgb = rgb_raw.reshape((-1, 3))[choose, :] 
                     
                     center = np.mean(instance_pts, axis=0)
                     instance_pts = instance_pts - center[np.newaxis, :]
