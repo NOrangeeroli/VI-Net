@@ -379,6 +379,7 @@ class V_Branch(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x, l, cls=None):
+        
         emb = self.mlp(x)
 
         rho_emb = torch.max(emb, dim=2)[0]
@@ -502,6 +503,7 @@ class I_Branch(nn.Module):
 
     def forward(self, x, vp_rot, cls=None):
         emb = self._get_transformed_feat(x, vp_rot)
+        
         emb = self.conv(emb).squeeze(3).squeeze(2)
         r6d = self.mlp(emb)
 

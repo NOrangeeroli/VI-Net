@@ -39,7 +39,8 @@ class TrainingDataset(Dataset):
             num_img_per_epoch=-1,
             resolution=64,
             ds_rate=2,
-            for_sim_feature = False
+            for_sim_feature = False,
+            num_patches = 15
     ):
         assert mode in ['ts','r','sim']
         self.config = config
@@ -50,6 +51,7 @@ class TrainingDataset(Dataset):
         self.resolution = resolution
         self.ds_rate = ds_rate
         self.for_sim_feature = for_sim_feature
+        self.num_patches = num_patches
         try: 
             self.sample_num = self.config.sample_num
             self.data_dir = config.data_dir
@@ -231,7 +233,7 @@ class TrainingDataset(Dataset):
                     )
                 self.instance_index = syn_instance_index
             
-            
+             
             
             np.random.shuffle(self.instance_index)
         else:
@@ -502,9 +504,9 @@ class TrainingDataset(Dataset):
             
             rotation = rotation[:, (2,0,1)]
             
-            rgb_raw = cv2.resize(rgb_raw, dsize=(840,840), interpolation=cv2.INTER_NEAREST)
+            rgb_raw = cv2.resize(rgb_raw, dsize=(self.num_patches*14,self.num_patches*14), interpolation=cv2.INTER_NEAREST)
             pts_raw = np.where((mask == 0)[:,:,None],np.nan, pts_raw)
-            pts_raw = cv2.resize(pts_raw, dsize=(60,60), interpolation=cv2.INTER_NEAREST)
+            pts_raw = cv2.resize(pts_raw, dsize=(self.num_patches,self.num_patches), interpolation=cv2.INTER_NEAREST)
             mask = np.logical_not(np.isnan(pts_raw)).all(axis = -1)
             # choose
             choose = mask.flatten().nonzero()[0]
@@ -621,9 +623,10 @@ class TestDataset():
         self.resolution = resolution
         self.data_dir = config.data_dir
         self.sample_num = config.sample_num
-        self.match_sample_num = 128
-        self.raw_size = 840
-        self.num_patches = 60
+        # self.match_sample_num = 128
+        # self.raw_size = 840
+        self.num_patches = 15
+        
 
         result_pkl_list = glob.glob(os.path.join(self.data_dir, 'detection', dataset, 'results_*.pkl'))
         self.result_pkl_list = sorted(result_pkl_list)
@@ -671,6 +674,8 @@ class TestDataset():
 
     def __getitem__(self, index):
         #return self._get_pair_random(index)
+        ret = self._get_instance(index)
+        
         return self._get_instance(index)
     
     
@@ -735,6 +740,8 @@ class TestDataset():
     def _get_instance_by_image_index(self, index):
         path = self.result_pkl_list[index]
         ret_dict = self._get_instance_by_path(path)
+        if ret_dict is None:
+            return None
         ret_dict['index'] = index
         return ret_dict
 
@@ -797,11 +804,12 @@ class TestDataset():
                     
 
                     instance_pts = pts_raw.reshape((-1, 3))[choose, :].copy()
-                    instance_rgb = rgb_raw.copy()
+                    
                     rgb_raw = np.array(rgb_raw.copy()).astype(np.float32) / 255.0
-                    instance_rgb = rgb_raw.reshape((-1, 3))[choose, :] 
+                    instance_rgb = rgb_raw.copy().reshape((-1, 3))[choose, :] 
                     
                     center = np.mean(instance_pts, axis=0)
+                    # import pdb;pdb.set_trace()
                     instance_pts = instance_pts - center[np.newaxis, :]
                     pts_raw = pts_raw - center[np.newaxis,np.newaxis, :]
                     if instance_pts.shape[0] <= self.sample_num:
@@ -812,12 +820,12 @@ class TestDataset():
                     instance_rgb = instance_rgb[choose_idx, :]
 
                     
-                    rgb_raw = cv2.resize(rgb_raw, dsize=(self.raw_size,self.raw_size), interpolation=cv2.INTER_NEAREST)
+                    rgb_raw = cv2.resize(rgb_raw, dsize=(self.num_patches*14,self.num_patches*14), interpolation=cv2.INTER_NEAREST)
                     pts_raw = cv2.resize(pts_raw, dsize=(self.num_patches,self.num_patches), interpolation=cv2.INTER_NEAREST)
                     mask = np.logical_not(np.isnan(pts_raw)).all(axis = -1)
                     choose = mask.flatten().nonzero()[0]
                     if len(choose)<=0:
-                        return None
+                        continue
                     elif len(choose) <= self.sample_num:
                         choose_idx = np.random.choice(np.arange(len(choose)), self.sample_num)
                     else:

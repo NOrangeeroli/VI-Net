@@ -3,7 +3,7 @@ import time
 import logging
 from tqdm import tqdm
 import pickle as cPickle
-
+import numpy as np
 import torch
 import gorilla
 from tensorboardX import SummaryWriter
@@ -225,7 +225,10 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 pred_scale = torch.norm(pred_size, dim=1, keepdim=True)
 
                 pts = (inputs['pts'] - pred_translation.unsqueeze(1))/ (pred_scale + 1e-8).unsqueeze(2)
+                # import pdb;pdb.set_trace()
+                pts_raw = (inputs['pts_raw'] - pred_translation[:,None,None,:])/ ((pred_scale + 1e-8)[:,None,None,:])
                 inputs['pts'] = pts.detach()
+                inputs['pts_raw'] = pts_raw.detach()
 
                 # reference_pts = data['reference_pts'][0].cuda()
                 # reference_rgb = data['reference_rgb'][0].cuda()
@@ -275,7 +278,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
 
 
 
-
+                
                 inputs['pts'] = torch.stack([inputs['pts'], reference_pts],dim = 1).float()
 
                 inputs['rgb'] = torch.stack([inputs['rgb'], reference_rgb],dim = 1).float()
@@ -284,6 +287,12 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 inputs['choose'] = torch.stack([inputs['choose'], reference_choose],dim = 1).long()
                 inputs['mask'] = torch.stack([inputs['mask'], reference_mask],dim = 1).long()
                 inputs['rotation_ref'] = reference_rotation
+                # import pdb;pdb.set_trace()
+                gt_rotation = result['gt_RTs'][:,:3,:3][:,:, (2,0,1)]
+                # import pdb;pdb.set_trace()
+                gt_rotation = gt_rotation/np.linalg.norm(gt_rotation,axis = -2, keepdims = True)
+
+                inputs['rotation_label'] = torch.FloatTensor(gt_rotation).cuda()
                 # import pdb;pdb.set_trace()
                 end_points = r_model(inputs)
                 pred_rotation = end_points['pred_rotation']
@@ -307,7 +316,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                     cPickle.dump(result, f)
 
             else:
-                import numpy as np
+                # import numpy as np
                 ninstance = data['pred_class_ids'][0].numpy().shape[0]
                 result['pred_RTs'] = np.zeros((ninstance, 4, 4))
                 result['pred_RTs'][:, :3, :3] = np.diag(np.ones(3))
@@ -327,7 +336,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
 
                 # rgb
                 import cv2
-                import numpy as np
+                # import numpy as np
                 from draw_utils import draw_detections
 
                 image = cv2.imread(image_path + '_color.png')[:, :, :3]

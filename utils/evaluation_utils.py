@@ -837,7 +837,7 @@ def compute_independent_mAP(final_results, synset_names, degree_thresholds=[360]
             # import ipdb; ipdb.set_trace()
 
             pose_aps[-1, i, j] = np.mean(pose_aps[1:-1, i, j])
-
+    
     if logger is not None:
         logger.warning('3D IoU at 25: {:.1f}'.format(
             iou_3d_aps[-1, iou_thres_list.index(0.25)] * 100))
@@ -872,11 +872,11 @@ def compute_independent_mAP(final_results, synset_names, degree_thresholds=[360]
             pose_aps[-1, degree_thres_list.index(10), shift_thres_list.index(5)] * 100))
 
 
-    # for i in range(6):
-    #     print('{} - 5 degree, 5cm: {:.1f}'.format(
-    #         i+1, pose_aps[i+1, degree_thres_list.index(5), shift_thres_list.index(5)] * 100))
-    #     print('{} - 10 degree, 5cm: {:.1f}'.format(
-    #         i+1, pose_aps[i+1, degree_thres_list.index(10), shift_thres_list.index(5)] * 100))
+    for i in range(6):
+        print('{} - 5 degree, 5cm: {:.1f}'.format(
+            i+1, pose_aps[i+1, degree_thres_list.index(5), shift_thres_list.index(5)] * 100))
+        print('{} - 10 degree, 5cm: {:.1f}'.format(
+            i+1, pose_aps[i+1, degree_thres_list.index(10), shift_thres_list.index(5)] * 100))
     return iou_3d_aps, pose_aps
 
 
