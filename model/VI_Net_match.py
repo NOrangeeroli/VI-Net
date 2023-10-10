@@ -51,7 +51,7 @@ def plot_rgb(rgb, index):
     plt.show()
 
 class Net(nn.Module):
-    def __init__(self, resolution=64, ds_rate=2):
+    def __init__(self, resolution=64, ds_rate=2, num_patches = 15):
         super(Net, self).__init__()
         self.res = resolution
         self.ds_rate = ds_rate
@@ -60,9 +60,8 @@ class Net(nn.Module):
         self.extractor_preprocess = transforms.Normalize(mean=self.extractor.mean, std=self.extractor.std)
         self.extractor_layer = 11
         self.extractor_facet = 'token'
-        self.extractor_scale = 14
-        self.match_sample_num = 128
-        self.num_patches = 15
+        
+        self.num_patches = num_patches
 
 
         self.cos = nn.CosineSimilarity(dim=-1, eps=1e-6)
@@ -249,18 +248,17 @@ class Net(nn.Module):
         best_match = self.best_match(feature1, feature2)
         match = ptsf2[torch.arange(b)[:,None], best_match,:]
         
-
+        
         # print(angle_of_rotation(inputs['rotation_ref'] @ inputs['rotation_label'].transpose(1,2)))
         # pts1_plot = self.rotate_pts_batch(pts1, inputs['rotation_label'].transpose(1,2))
         # ptsf1_plot = self.rotate_pts_batch(ptsf1, inputs['rotation_label'].transpose(1,2))
+        # with torch.no_grad():
+        #     print((torch.arccos(self.cos(ptsf1_plot, match))*180/3.1415926).mean())
         
         # import pdb;pdb.set_trace()
         # plot_pt_pair(pts1_plot, pts2, ptsf1_plot, match, 0,0)
 
-        # pts1_plot = self.rotate_pts_batch(pts1, inputs['rotation_label'])
-        # ptsf1_plot = self.rotate_pts_batch(ptsf1, inputs['rotation_label'])
-        # import pdb;pdb.set_trace()
-        # plot_pt_pair(pts1_plot, pts2, ptsf1_plot, match, 0,0)
+       
         
         dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
         
