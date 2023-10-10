@@ -33,7 +33,7 @@ train_dataset:
   angle_range: 20
 
 train_dataloader:
-  bs: 96
+  bs: 32
   num_workers: 16
   shuffle: True
   drop_last: True
