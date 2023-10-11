@@ -90,7 +90,7 @@ if __name__ == "__main__":
     r_model = r_model.cuda()
     sim_model= sim_model.cuda()
 
-    checkpoint = os.path.join(cfg.log_dir, 'PN2', 'epoch_' + str(15) + '.pth')
+    checkpoint = os.path.join(cfg.log_dir, 'PN2', 'epoch_' + str(23) + '.pth')
     logger.info("=> loading PN2 checkpoint from path: {} ...".format(checkpoint))
     gorilla.solver.load_checkpoint(model=ts_model, filename=checkpoint)
 
