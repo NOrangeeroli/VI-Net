@@ -279,7 +279,7 @@ class Net(nn.Module):
         # import pdb;pdb.set_trace()
         ca_feature = self.cross_attn(pc2, pc1)
         dis_map_f, feature_map = self.feat2smap_drift(pts1, ca_feature)
-        
+        feature_map = torch.zeros_like(feature_map)        
         x1 = torch.cat([x1, feature_map], axis = -3)
 
         ip_rot = self.i_branch(x1, vp_rot)
