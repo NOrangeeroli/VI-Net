@@ -392,7 +392,7 @@ class Net(nn.Module):
         match_feature = self.mlp(  torch.cat([pnfeature1, match], dim=2).transpose(1,2))
         r2 = self.rotation_estimator(match_feature.squeeze())
         r2 = Ortho6d2Mat(r2[:,:3], r2[:,3:])
-        match_feature = torch.zeros_like(match_feature)
+        # match_feature = torch.zeros_like(match_feature)
         # match_feature = match_feature.transpose(1,2)
 
         x2 = torch.cat([x, torch.tile(match_feature[:,:,:,None],(1,1,x.shape[2], x.shape[3]))], dim = 1)
