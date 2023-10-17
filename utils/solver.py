@@ -246,7 +246,9 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                     filter = (ref_cls== test_cls)
                     cos_sim = torch.mm(test_feature_entry , ref_feature_norm[filter].transpose(0,1) )
                     best_ref_cls.append(test_cls)
+                    # import  pdb;pdb.set_trace()
                     best_id = torch.max(cos_sim, dim = 1)[1]
+                    # best_id = torch.randint(cos_sim.shape[1],size = (1,))
                     best_ref_index.append(ref_index[filter][best_id])
 
                     
