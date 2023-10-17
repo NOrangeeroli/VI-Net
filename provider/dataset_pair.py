@@ -42,6 +42,7 @@ class TrainingDataset(Dataset):
             for_sim_feature = False,
             num_patches = 15
     ):
+        np.random.seed(0)
         assert mode in ['ts','r','sim']
         self.config = config
         self.dataset = dataset
@@ -345,10 +346,11 @@ class TrainingDataset(Dataset):
         ret_dict = {}
         if self.mode == 'sim':
 
-            cos = (np.trace(rotation)-1)/2
-            ret_dict['cos'] = torch.FloatTensor([cos])
+            cos = (np.trace(rotation_first@ (rotation_second.T))-1)/2
+            
             assert abs(cos)<=1.0001
             cos = np.clip(cos, -1, 1)
+            ret_dict['cos'] = torch.FloatTensor([cos])
 
             rotation_angle_label  = np.arccos(cos)
             ret_dict['rotation_angle_label'] = torch.FloatTensor([rotation_angle_label])
@@ -387,6 +389,8 @@ class TrainingDataset(Dataset):
     
     def _load_data(self,img_path,img_type, cam_cx, cam_cy,cam_fx, cam_fy, instance_id = -1, without_noise = False):
         #import pdb;pdb.set_trace()
+        if self.mode == 'SIM':
+            without_noise = True
         if self.dataset == 'REAL275':
             depth = load_composed_depth(img_path)
             depth = fill_missing(depth, self.norm_scale, 1)
@@ -427,7 +431,8 @@ class TrainingDataset(Dataset):
         pts0 = (self.xmap[rmin:rmax, cmin:cmax].reshape((-1)) - cam_cx) * pts2 / cam_fx
         pts1 = (self.ymap[rmin:rmax, cmin:cmax].reshape((-1))- cam_cy) * pts2 / cam_fy
         pts = np.transpose(np.stack([pts0, pts1, pts2]), (1,0)).astype(np.float32) # 480*640*3
-        pts = pts + np.clip(0.001*np.random.randn(pts.shape[0], 3), -0.005, 0.005)
+        if not without_noise:
+            pts = pts + np.clip(0.001*np.random.randn(pts.shape[0], 3), -0.005, 0.005)
 
         pts_raw = pts#.reshape(h,w,3)
         
@@ -441,10 +446,10 @@ class TrainingDataset(Dataset):
         rgb_raw = rgb[rmin:rmax, cmin:cmax]
         
         
-    
-        rgb_raw = self.colorjitter(Image.fromarray(np.uint8(rgb_raw)))
+        if not without_noise:
+            rgb_raw = self.colorjitter(Image.fromarray(np.uint8(rgb_raw)))
         rgb_raw = np.array(rgb_raw)
-        if img_type == 'syn':
+        if img_type == 'syn' and not without_noise:
             rgb_raw = rgb_add_noise(rgb_raw)
         rgb_raw = rgb_raw.astype(np.float32).reshape((-1,3))/ 255.0
         rgb = rgb_raw[choose] 
@@ -456,7 +461,7 @@ class TrainingDataset(Dataset):
         size = gts['scales'][instance_id] * gts['sizes'][instance_id].astype(np.float32)
 
 
-        if hasattr(self.config, 'random_rotate') and self.config.random_rotate:
+        if hasattr(self.config, 'random_rotate') and self.config.random_rotate and not without_noise:
             pts_raw, rotation = random_rotate(pts_raw, rotation, translation, self.config.angle_range)
         
         if self.mode == 'ts':

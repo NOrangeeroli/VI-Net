@@ -5,9 +5,10 @@ import torch.nn.functional as F
 from module import SphericalFPN, V_Branch, I_Branch, I_Branch_Pair
 from extractor_dino import ViTExtractor
 from loss import SigmoidFocalLoss
+from module import PointNet2MSG
 from smap_utils import Feat2Smap
 from torchvision import transforms
-from rotation_utils import angle_of_rotation
+from rotation_utils import angle_of_rotation, Ortho6d2Mat
 def plot_pt(pt,index):
     import pyvista as pv
     import matplotlib.pyplot as plt
@@ -60,6 +61,7 @@ class Net(nn.Module):
         self.extractor_preprocess = transforms.Normalize(mean=self.extractor.mean, std=self.extractor.std)
         self.extractor_layer = 11
         self.extractor_facet = 'token'
+        self.pn2msg = PointNet2MSG(radii_list=[[0.01, 0.02], [0.02,0.04], [0.04,0.08], [0.08,0.16]], dim_in = 384)
         
         self.num_patches = num_patches
 
@@ -70,10 +72,50 @@ class Net(nn.Module):
         # data processing
         self.feat2smap = Feat2Smap(self.res)
         self.feat2smap_drift = Feat2Smap(self.res//self.ds_rate)
-        self.spherical_fpn_drift = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
+        # self.spherical_fpn_drift = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
         self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
         self.v_branch = V_Branch(resolution=self.ds_res, in_dim = 256)
         self.i_branch = I_Branch(resolution=self.ds_res, in_dim = 256*2)
+        self.match_threshould = nn.Parameter(torch.tensor(-1.0, requires_grad=True))
+        self.mlp  = nn.Sequential(
+            nn.Conv1d(1024, 512, 1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Conv1d(512, 256, 1),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Conv1d(256, 256, 1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1)
+        )
+
+        self.rotation_estimator = nn.Sequential(
+           
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 6),
+        )
+
+        self.feature_mlp = nn.Sequential(
+            nn.Conv1d(512, 512, 1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Conv1d(512, 512, 1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Conv1d(512, 512, 1),
+        )
+
+        self.similarity_mlp = nn.Sequential(
+            nn.Conv1d(1024, 512, 1),
+            nn.ReLU(),
+            nn.Conv1d(512, 128, 1),
+            nn.ReLU(),
+            nn.Conv1d(128, 1, 1),
+        )
     def rotate_pts_batch(self,pts, rotation):
             pts_shape = pts.shape
             b = pts_shape[0]
@@ -185,17 +227,31 @@ class Net(nn.Module):
         b,s,c= feature2.shape
         feature1 = feature1 / feature1.norm(dim=-1, keepdim=True)
         feature2 = feature2 / feature2.norm(dim=-1, keepdim=True)
+        feature2 = torch.cat([feature2, 
+                              torch.zeros_like(feature2[0,0])[None,None,:].repeat((feature2.shape[0],1,1))], dim = 1)
         
         with torch.no_grad():
             cos_sim = self.cos(feature1[:,:,None,:], feature2[:,None,:,:])
             weights = self.soft_max(cos_sim)
         # cos_sim = 2 - torch.cdist(feature1, feature2)
+        # similarity_feature = torch.cat((feature1[:,:,None,:].repeat(1,1,feature2.shape[1],1), 
+        #                                          feature2[:,None,:,:].repeat(1,feature1.shape[1],1,1)), dim = -1)
         
+        # samples = similarity_feature.shape[1]
+        # similarity_feature = similarity_feature.reshape(similarity_feature.shape[0],-1, similarity_feature.shape[-1])
+        # similarity_feature = similarity_feature.transpose(1,2)
+        # weights = self.similarity_mlp(similarity_feature).transpose(1,2)
+        # weights = weights.reshape(similarity_feature.shape[0],samples,samples)
+
 
         # match = torch.argmin(cos_sim, dim = -1) # b x n x n
                 
         return weights#, match2 #b x s
-    
+    def match_enforcer(self, match_feature):
+        r = self.rotation_estimator(match_feature)
+        r = Ortho6d2Mat(r[:, :3].contiguous(), r[:, 3:].contiguous()).view(-1,3,3)
+        return r
+
     def best_match(self, feature1, feature2):
         #feature: b x h x w x c
         #mask: b x h x w x 1
@@ -213,9 +269,9 @@ class Net(nn.Module):
         
         
 
-        match = torch.argmax(cos_sim, dim = -1) # b x n x n
+        cos_sim_m, match = torch.max(cos_sim, dim = -1) # b x n x n
                 
-        return match#, match2 #b x s
+        return match,cos_sim_m, cos_sim #, match2 #b x s
 
 
     def forward(self, inputs):
@@ -244,12 +300,46 @@ class Net(nn.Module):
         pts_raw = pts_raw.reshape(b*2,(self.num_patches)**2,-1)[torch.arange(b*2)[:,None], choose.reshape(b*2,match_num),:].reshape(b,2,match_num,-1)
         ptsf1, ptsf2 = pts_raw[:,0], pts_raw[:,1]
         ptsf2 = self.rotate_pts_batch(ptsf2, rotation_ref.transpose(1,2))
+
+        # feature2 = feature1
+        # ptsf2 = self.rotate_pts_batch(ptsf1, inputs['rotation_label'].transpose(1,2))
+
+
+        # pnfeature1 = self.pn2msg(torch.cat([ptsf1, feature1], dim=2)).transpose(1,2)
+        # pnfeature1_global = torch.mean(pnfeature1, 1, keepdim=True)
+        # pnfeature1 = torch.cat([pnfeature1, pnfeature1_global.repeat(1,pnfeature1.shape[1],1)], dim = 2)
+        
+        # pnfeature2 = self.pn2msg(torch.cat([ptsf2, feature2], dim=2)).transpose(1,2)
+        # pnfeature2_global = torch.mean(pnfeature2, 1, keepdim=True)
+        # pnfeature2 = torch.cat([pnfeature2, pnfeature2_global.repeat(1,pnfeature2.shape[1],1)], dim = 2)
+
+
+        # sim_weights = self.similarity_weights(pnfeature1, pnfeature2)
+        # match =sim_weights@pnfeature2
+        
+        # match_feature = self.mlp(  torch.cat([pnfeature1, match], dim=2).transpose(1,2))
+        # r1 = self.rotation_estimator(match_feature.squeeze())
+        # r1 = Ortho6d2Mat(r1[:,:3], r1[:,3:])
+        # match_feature = torch.zeros_like(match_feature)
         # import pdb;pdb.set_trace()
-        best_match = self.best_match(feature1, feature2)
-        match = ptsf2[torch.arange(b)[:,None], best_match,:]
+
+        # pnfeature1 = self.pn2msg(torch.cat([ptsf1, feature1], dim=2)).transpose(1,2)
+        # pnfeature2 = self.pn2msg(torch.cat([ptsf2, feature2], dim=2)).transpose(1,2)
+        # best_match, cos_sim_m, cos_sim = self.best_match(feature1, feature2)
+
+        # match = ptsf2[torch.arange(b)[:,None], best_match,:]
+        # match = torch.where(cos_sim_m[:,:,None]>self.match_threshould, match, 0)
+        # import pdb;pdb.set_trace()
+        # match_feature = self.mlp(  torch.cat([pnfeature1, match], dim=2).transpose(1,2))
+        # r1 = self.rotation_estimator(match_feature)
+        # match_feature = match_feature.transpose(1,2)
         
         
-        # print(angle_of_rotation(inputs['rotation_ref'] @ inputs['rotation_label'].transpose(1,2)))
+        # try:
+
+        #     print(angle_of_rotation(inputs['rotation_ref'] @ inputs['rotation_label'].transpose(1,2)).mean())
+        # except:
+        #     pass
         # pts1_plot = self.rotate_pts_batch(pts1, inputs['rotation_label'].transpose(1,2))
         # ptsf1_plot = self.rotate_pts_batch(ptsf1, inputs['rotation_label'].transpose(1,2))
         # with torch.no_grad():
@@ -258,38 +348,66 @@ class Net(nn.Module):
         # import pdb;pdb.set_trace()
         # plot_pt_pair(pts1_plot, pts2, ptsf1_plot, match, 0,0)
 
-       
-        
-        dis_map1, rgb_map1 = self.feat2smap(pts1, rgb1)
         
         
+        dis_map, rgb_map= self.feat2smap(pts1, rgb1)
+        # dis_map2, match_map = self.feat2smap(ptsf1, match)
+        # import pdb;pdb.set_trace()
+        # match_map = torch.zeros_like(match_map)
+        # dis_map1 = torch.zeros_like(dis_map1)
         
         # import pdb;pdb.set_trace()
         # backbone
-        x1 = self.spherical_fpn(dis_map1, rgb_map1)
+        x = self.spherical_fpn(dis_map, rgb_map)
+        # x1 = torch.cat([x, torch.tile(match_feature[:,:,:,None],(1,1,x.shape[2], x.shape[3]))], dim = 1)
+        
+
         # x2 = self.spherical_fpn(dis_map2, rgb_map2)
         
         # x = torch.cat([x1, x2], axis = 1)
         # viewpoint rotation
-        vp_rot, rho_prob, phi_prob = self.v_branch(x1, inputs)
+        vp_rot, rho_prob, phi_prob = self.v_branch(x, inputs)
         pred_vp_rot = self.v_branch._get_vp_rotation(rho_prob, phi_prob,{})
 
         
         # in-plane rotation
-        ptsf1_v = self.rotate_pts_batch(ptsf1, vp_rot.transpose(1,2))
-        drift = match - ptsf1_v
-        dis_map_f, drift_map = self.feat2smap(ptsf1, drift)
-        x2 = self.spherical_fpn_drift(dis_map_f, drift_map)
-        x1 = torch.cat([x1, x2], axis = -3)
+        
+        pnfeature1 = self.pn2msg(torch.cat([ptsf1, feature1], dim=2)).transpose(1,2)
+        pnfeature1_global = torch.mean(pnfeature1, 1, keepdim=True)
+        pnfeature1 = torch.cat([pnfeature1, pnfeature1_global.repeat(1,pnfeature1.shape[1],1)], dim = 2)
+        pnfeature2 = self.pn2msg(torch.cat([ptsf2, feature2], dim=2)).transpose(1,2)
+        pnfeature2_global = torch.mean(pnfeature2, 1, keepdim=True)
+        pnfeature2 = torch.cat([pnfeature2, pnfeature2_global.repeat(1,pnfeature2.shape[1],1)], dim = 2)
+        
+        pnfeature1 = self.feature_mlp(pnfeature1.transpose(1,2)).transpose(1,2)
+        pnfeature2 = self.feature_mlp(pnfeature2.transpose(1,2)).transpose(1,2)
 
-        ip_rot = self.i_branch(x1, vp_rot)
+        sim_weights = self.similarity_weights(pnfeature1, pnfeature2)
+        pnfeature2 = torch.cat([pnfeature2, 
+                              torch.zeros_like(pnfeature2[0,0])[None,None,:].repeat((pnfeature2.shape[0],1,1))], dim = 1)
+        
+        match = sim_weights@pnfeature2
+        
+        # import pdb;pdb.set_trace()
+        match_feature = self.mlp(  torch.cat([pnfeature1, match], dim=2).transpose(1,2))
+        r2 = self.rotation_estimator(match_feature.squeeze())
+        r2 = Ortho6d2Mat(r2[:,:3], r2[:,3:])
+        match_feature = torch.zeros_like(match_feature)
+        # match_feature = match_feature.transpose(1,2)
+
+        x2 = torch.cat([x, torch.tile(match_feature[:,:,:,None],(1,1,x.shape[2], x.shape[3]))], dim = 1)
+
+        ip_rot = self.i_branch(x2, vp_rot)
 
         outputs = {
             'pred_rotation': vp_rot @ ip_rot,
             'pred_vp_rotation': pred_vp_rot,
             'pred_ip_rotation': ip_rot,
             'rho_prob': rho_prob,
-            'phi_prob': phi_prob
+            'phi_prob': phi_prob,
+            'thres': self.match_threshould,
+            # 'r1': r1,
+            'r2':vp_rot @ r2
         }
         return outputs
 
@@ -317,20 +435,29 @@ class Loss(nn.Module):
         
         vp_loss = rho_loss + phi_loss
         ip_loss = self.l1loss(pred['pred_rotation'], gt['rotation_label'])
+
+        # r1_loss = self.l1loss(pred['r1'], gt['rotation_label'])
+        r2_loss = self.l1loss(pred['r2'], gt['rotation_label'])
         residual_angle = angle_of_rotation(pred['pred_rotation'].transpose(1,2) @ gt['rotation_label'])
+        # r1_residual_angle = angle_of_rotation(pred['r1'].transpose(1,2) @ gt['rotation_label'])
+        r2_residual_angle = angle_of_rotation(pred['r2'].transpose(1,2) @ gt['rotation_label'])
 
         vp_residual_angle = angle_of_rotation(pred['pred_vp_rotation'].transpose(1,2) @ gt['vp_rotation_label'])
         ip_residual_angle = angle_of_rotation(pred['pred_ip_rotation'].transpose(1,2) @ gt['ip_rotation_label'])
 
-        loss = self.cfg.vp_weight * vp_loss + ip_loss
+        loss = self.cfg.vp_weight * vp_loss + ip_loss  + r2_loss
 
         return {
             'loss': loss,
             'vp_loss': vp_loss,
             'ip_loss': ip_loss,
+            'r2_loss': r2_loss,
             'rho_acc': rho_acc,
             'phi_acc': phi_acc,
             'residual_angle':residual_angle.mean(),
+            # 'r1_residual_angle':r1_residual_angle.mean(),
+            'r2_residual_angle':r2_residual_angle.mean(),
             'vp_residual_angle':vp_residual_angle.mean(),
-            'ip_residual_angle': ip_residual_angle.mean()
+            'ip_residual_angle': ip_residual_angle.mean(),
+            'match_thres': pred['thres'].mean()
         }

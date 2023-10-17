@@ -48,6 +48,7 @@ class Net(nn.Module):
         # backbone
         x1 = self.spherical_fpn(dis_map1, rgb_map1)
         x2 = self.spherical_fpn(dis_map2, rgb_map2)
+        # import pdb;pdb.set_trace()
 
         x1 = x1.reshape((x1.shape[0], x1.shape[1], -1))
         x2 = x2.reshape((x2.shape[0], x2.shape[1], -1))
