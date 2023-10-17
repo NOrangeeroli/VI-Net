@@ -57,8 +57,11 @@ class Net(nn.Module):
         self.res = resolution
         self.ds_rate = ds_rate
         self.ds_res = resolution//ds_rate
-        self.extractor = ViTExtractor('dinov2_vits14', 14, device = 'cuda')
-        self.extractor_preprocess = transforms.Normalize(mean=self.extractor.mean, std=self.extractor.std)
+        extractor = ViTExtractor('dinov2_vits14', 14, device = 'cuda')
+        self.extractor =  torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14').cuda()
+        
+        # self.extractor.model =  torch.nn.DataParallel(self.extractor.model, range(2))
+        self.extractor_preprocess = transforms.Normalize(mean=extractor.mean, std=extractor.std)
         self.extractor_layer = 11
         self.extractor_facet = 'token'
         self.pn2msg = PointNet2MSG(radii_list=[[0.01, 0.02], [0.02,0.04], [0.04,0.08], [0.08,0.16]], dim_in = 384)
@@ -136,8 +139,8 @@ class Net(nn.Module):
         
         with torch.no_grad():
             #dino_feature = self.extractor.model(rgb_raw)
-        
-            dino_feature = self.extractor.extract_descriptors(rgb_raw, layer = self.extractor_layer, facet = self.extractor_facet )
+            dino_feature = self.extractor.forward_features(rgb_raw)["x_prenorm"][:,1:]
+            # dino_feature = self.extractor.extract_descriptors(rgb_raw, layer = self.extractor_layer, facet = self.extractor_facet )
         
         dino_feature = dino_feature.reshape(dino_feature.shape[0],self.num_patches,self.num_patches,-1)
         
@@ -371,7 +374,7 @@ class Net(nn.Module):
 
         
         # in-plane rotation
-        
+        ptsf1  = self.rotate_pts_batch(ptsf1, vp_rot.transpose(1,2))
         pnfeature1 = self.pn2msg(torch.cat([ptsf1, feature1], dim=2)).transpose(1,2)
         pnfeature1_global = torch.mean(pnfeature1, 1, keepdim=True)
         pnfeature1 = torch.cat([pnfeature1, pnfeature1_global.repeat(1,pnfeature1.shape[1],1)], dim = 2)
