@@ -873,8 +873,12 @@ def compute_independent_mAP(final_results, synset_names, degree_thresholds=[360]
 
 
     for i in range(6):
+        print('{} - 5 degree, 2cm: {:.1f}'.format(
+            i+1, pose_aps[i+1, degree_thres_list.index(5), shift_thres_list.index(2)] * 100))
         print('{} - 5 degree, 5cm: {:.1f}'.format(
             i+1, pose_aps[i+1, degree_thres_list.index(5), shift_thres_list.index(5)] * 100))
+        print('{} - 10 degree, 2cm: {:.1f}'.format(
+            i+1, pose_aps[i+1, degree_thres_list.index(10), shift_thres_list.index(2)] * 100))
         print('{} - 10 degree, 5cm: {:.1f}'.format(
             i+1, pose_aps[i+1, degree_thres_list.index(10), shift_thres_list.index(5)] * 100))
     return iou_3d_aps, pose_aps

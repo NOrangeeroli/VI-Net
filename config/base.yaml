@@ -3,7 +3,7 @@ n_cls: 6
 resolution: 64
 ds_rate: 2
 mode: epoch
-max_epoch : 60
+max_epoch : 10
 num_mini_batch_per_epoch: 5000
 num_patches: 15
 
@@ -33,7 +33,7 @@ train_dataset:
   angle_range: 20
 
 train_dataloader:
-  bs: 60
+  bs: 48
   num_workers: 16
   shuffle: True
   drop_last: True
