@@ -219,9 +219,9 @@ class Net(nn.Module):
         self.feat2smap = Feat2Smap(self.res)
         self.feat2smap_drift = Feat2Smap(self.res//self.ds_rate)
         # self.spherical_fpn_drift = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
-        self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=3)
+        self.spherical_fpn = SphericalFPN(ds_rate=self.ds_rate, dim_in1=1, dim_in2=518)
         self.v_branch = V_Branch(resolution=self.ds_res, in_dim = 256)
-        self.i_branch = I_Branch(resolution=self.ds_res, in_dim = 768)
+        self.i_branch = I_Branch(resolution=self.ds_res, in_dim = 256)
         self.match_threshould = nn.Parameter(torch.tensor(-1.0, requires_grad=True))
         self.pts_mlp  = nn.Sequential(
             nn.Conv1d(1031, 512, 1),
@@ -534,8 +534,8 @@ class Net(nn.Module):
         weights_entropy = (-sim_weights * torch.log(sim_weights)).sum(-1).mean()
         
         # print(sim_weights.max(-1)[1][0])
-        top_feature = pnfeature2[torch.arange(48)[:,None, None], top_index, :]
-        top_pts = ptsf2[torch.arange(48)[:,None, None], top_index, :]
+        top_feature = pnfeature2[torch.arange(b)[:,None, None], top_index, :]
+        top_pts = ptsf2[torch.arange(b)[:,None, None], top_index, :]
         top_weights = top_weights[:,:,:,None]
         top_feature = torch.cat([top_feature, top_pts, top_weights], dim = -1).reshape(b, match_num, -1)
         top_feature = torch.cat([top_feature, pnfeature1, ptsf1], dim = -1)
@@ -551,14 +551,15 @@ class Net(nn.Module):
 
         
         
-        # dis_map, rgb_map= self.feat2smap(pts, rgb)
+        dis_map, rgb_map= self.feat2smap(pts, rgb)
+        _, ref_map = self.feat2smap(ptsf1, torch.cat([ match_pts, pnfeature1],dim = -1))
         
         # backbone
-        # x = self.spherical_fpn(dis_map, rgb_map)
+        x = self.spherical_fpn(dis_map, torch.cat([rgb_map,ref_map],dim = 1))
         
         # viewpoint rotation
-        # vp_rot, rho_prob, phi_prob = self.v_branch(x, inputs)
-        # pred_vp_rot = self.v_branch._get_vp_rotation(rho_prob, phi_prob,{})
+        vp_rot, rho_prob, phi_prob = self.v_branch(x, inputs)
+        pred_vp_rot = self.v_branch._get_vp_rotation(rho_prob, phi_prob,{})
 
         
         # in-plane rotation
@@ -567,16 +568,16 @@ class Net(nn.Module):
 
         # x2 = torch.cat([x, torch.tile(pose_feat[:,:,None,None],(1,1,x.shape[2], x.shape[3]))], dim = 1)
         
-        # ip_rot = self.i_branch(x2, vp_rot)
+        ip_rot = self.i_branch(x, vp_rot)
         canonical_pts = self.rotate_pts_batch(ptsf, inputs['rotation_label'].transpose(1,2))
         outputs = {
-            # 'pred_rotation': vp_rot @ ip_rot,
-            # 'pred_vp_rotation': pred_vp_rot,
+            'pred_rotation': vp_rot @ ip_rot,
+            'pred_vp_rotation': pred_vp_rot,
             # 'pred_ip_rotation': ip_rot,
-            # 'rho_prob': rho_prob,
-            # 'phi_prob': phi_prob,
+            'rho_prob': rho_prob,
+            'phi_prob': phi_prob,
             # 'thres': self.match_threshould,
-            # 'weights_entropy':weights_entropy,
+            'weights_entropy':weights_entropy,
             # 'r1': r1,
             'r2':r2,
             # 'r2':vp_rot @ r2,
@@ -597,53 +598,54 @@ class Loss(nn.Module):
         self.sfloss = SigmoidFocalLoss()
 
     def forward(self, pred, gt):
-        # rho_prob = pred['rho_prob']
-        # rho_label = F.one_hot(gt['rho_label'].squeeze(1), num_classes=rho_prob.size(1)).float()
+        rho_prob = pred['rho_prob']
+        rho_label = F.one_hot(gt['rho_label'].squeeze(1), num_classes=rho_prob.size(1)).float()
         #import pdb;pdb.set_trace()
-        # rho_loss = self.sfloss(rho_prob, rho_label).mean()
-        # pred_rho = torch.max(torch.sigmoid(rho_prob),1)[1]
-        # rho_acc = (pred_rho.long() == gt['rho_label'].squeeze(1).long()).float().mean() * 100.0
+        rho_loss = self.sfloss(rho_prob, rho_label).mean()
+        pred_rho = torch.max(torch.sigmoid(rho_prob),1)[1]
+        rho_acc = (pred_rho.long() == gt['rho_label'].squeeze(1).long()).float().mean() * 100.0
 
-        # phi_prob =  pred['phi_prob']
-        # phi_label = F.one_hot(gt['phi_label'].squeeze(1), num_classes=phi_prob.size(1)).float()
-        # phi_loss = self.sfloss(phi_prob, phi_label).mean()
-        # pred_phi = torch.max(torch.sigmoid(phi_prob),1)[1]
-        # phi_acc = (pred_phi.long() == gt['phi_label'].squeeze(1).long()).float().mean() * 100.0
+        phi_prob =  pred['phi_prob']
+        phi_label = F.one_hot(gt['phi_label'].squeeze(1), num_classes=phi_prob.size(1)).float()
+        phi_loss = self.sfloss(phi_prob, phi_label).mean()
+        pred_phi = torch.max(torch.sigmoid(phi_prob),1)[1]
+        phi_acc = (pred_phi.long() == gt['phi_label'].squeeze(1).long()).float().mean() * 100.0
         
-        # vp_loss = rho_loss + phi_loss
-        # ip_loss = self.l1loss(pred['pred_rotation'], gt['rotation_label'])
+        vp_loss = rho_loss + phi_loss
+        ip_loss = self.l1loss(pred['pred_rotation'], gt['rotation_label'])
 
         pts_loss = 0.1*self.smoothl1loss(pred['match_pts'], pred['canonical_pts'])
         # r1_loss = self.l1loss(pred['r1'], gt['rotation_label'])
         r2_loss = self.l1loss(pred['r2'], gt['rotation_label'])
-        # residual_angle = angle_of_rotation(pred['pred_rotation'].transpose(1,2) @ gt['rotation_label'])
+        residual_angle = angle_of_rotation(pred['pred_rotation'].transpose(1,2) @ gt['rotation_label'])
         # r1_residual_angle = angle_of_rotation(pred['r1'].transpose(1,2) @ gt['rotation_label'])
         r2_residual_angle = angle_of_rotation(pred['r2'].transpose(1,2) @ gt['rotation_label'])
         
-        # vp_residual_angle = angle_of_rotation(pred['pred_vp_rotation'].transpose(1,2) @ gt['vp_rotation_label'])
+        vp_residual_angle = angle_of_rotation(pred['pred_vp_rotation'].transpose(1,2) @ gt['vp_rotation_label'])
         # ip_residual_angle = angle_of_rotation(pred['pred_ip_rotation'].transpose(1,2) @ gt['ip_rotation_label'])
         gt_ref_angle = angle_of_rotation(pred['rotation_ref'].transpose(1,2) @ gt['rotation_label'])
         # loss = self.cfg.vp_weight * vp_loss + ip_loss   + r2_loss + pts_loss
-        loss = pts_loss + r2_loss
+        loss = pts_loss + r2_loss +  self.cfg.vp_weight * vp_loss + ip_loss
         # import pdb;pdb.set_trace()
         return {
             'loss': loss,
-            # 'vp_loss': vp_loss,
-            # 'ip_loss': ip_loss,
+            'vp_loss': vp_loss,
+            'ip_loss': ip_loss,
             'r2_loss': r2_loss,
-            # 'rho_acc': rho_acc,
-            # 'phi_acc': phi_acc,
+            'rho_acc': rho_acc,
+            'phi_acc': phi_acc,
             'pts_loss': self.l1loss(pred['match_pts'], pred['canonical_pts'])/pred['canonical_pts'].abs().mean(),
-            # 'residual_angle':residual_angle.mean(),
+            'residual_angle':residual_angle.mean(),
             # 'r1_residual_angle':r1_residual_angle.mean(),
             'r2_residual_angle':r2_residual_angle.mean(),
 
-            '5d': (r2_residual_angle<5).sum()/r2_residual_angle.shape[0],
-            # 'vp_residual_angle':vp_residual_angle.mean(),
+            'r2_5d': (r2_residual_angle<5).sum()/r2_residual_angle.shape[0],
+            '5d':  (residual_angle<5).sum()/residual_angle.shape[0],
+            'vp_residual_angle':vp_residual_angle.mean(),
             # 'ip_residual_angle': ip_residual_angle.mean(),
             'gt_ref_angle': gt_ref_angle.mean(),
             # 'match_thres': pred['thres'].mean(),
-            # 'weights_entropy':pred['weights_entropy'],
-            'feature_diff': pred['feature_diff']
+            'weights_entropy':pred['weights_entropy'].mean(),
+            'feature_diff': pred['feature_diff'].mean()
 
         }
