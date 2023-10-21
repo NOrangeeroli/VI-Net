@@ -440,7 +440,58 @@ class Net(nn.Module):
         pnfeature = torch.cat([pnfeature, pnfeature_global.repeat(1,pnfeature.shape[1],1)], dim = 2)
         pnfeature = self.feature_mlp2(pnfeature.transpose(1,2)).transpose(1,2)
         return pnfeature
+    def extractor_retrieve(self, inputs):
+        b,num_sample = inputs['choose'].shape
+        rgb_raw = inputs['rgb_raw']
+        feature = self.extract_feature(rgb_raw).reshape(b,(self.num_patches)**2,-1)
+        
+        match_num = 100
+        choose = inputs['choose'][:,:match_num]
+        pts_raw = inputs['pts_raw']
+        pts_raw = pts_raw.reshape(b,(self.num_patches)**2,-1)[torch.arange(b)[:,None], choose,:]
+        ptsf = pts_raw
+        feature = feature[torch.arange(b)[:,None], choose,:]
+        pnfeature = self.get_pnfeature(ptsf, feature)
+        pnfeature_global = torch.mean(pnfeature, 1)
+        return pnfeature_global
+    def inference(self,inputs):
+        rgb1, rgb2 = inputs['rgb'][:,0,:,:], inputs['rgb'][:,1,:,:]
+        pts1, pts2 = inputs['pts'][:,0,:,:], inputs['pts'][:,1,:,:]
+        b,_,rgb_h,rgb_w,_ = inputs['rgb_raw'].shape
+        rgb_raw = inputs['rgb_raw'].reshape(-1,14*self.num_patches,14*self.num_patches,3)
+        # rgb_raw1, rgb_raw2 = rgb_raw.reshape(b,2,rgb_h, rgb_w)
+        rotation_ref = inputs['rotation_ref']
+        pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
+        #import pdb;pdb.set_trace()
+        feature = self.extract_feature(rgb_raw).reshape(b*2,(self.num_patches)**2,-1)
+        _,_,num_sample = inputs['choose'].shape
+        match_num = 100
+        choose = inputs['choose'][:,:,:match_num]
+        feature = feature[torch.arange(b*2)[:,None], 
+                          choose.reshape(b*2,match_num),:].reshape(b,2,match_num,-1)
+        feature1, feature2 = feature[:,0], feature[:,1]
+        pts_raw = inputs['pts_raw']
+        pts_raw = pts_raw.reshape(b*2,(self.num_patches)**2,-1)[torch.arange(b*2)[:,None], choose.reshape(b*2,match_num),:].reshape(b,2,match_num,-1)
+        ptsf1, ptsf2 = pts_raw[:,0], pts_raw[:,1]
+        ptsf2 = self.rotate_pts_batch(ptsf2, rotation_ref.transpose(1,2))
 
+        pnfeature1 = self.get_pnfeature(ptsf1, feature1)
+        pnfeature2 = self.get_pnfeature(ptsf2, feature2)
+
+        sim_weights, top_weights, top_index = self.similarity_weights(pnfeature1, pnfeature2)
+        top_feature = pnfeature2[torch.arange(b)[:,None, None], top_index, :]
+        top_pts = ptsf2[torch.arange(b)[:,None, None], top_index, :]
+        top_weights = top_weights[:,:,:,None]
+        top_feature = torch.cat([top_feature, top_pts, top_weights], dim = -1).reshape(b, match_num, -1)
+        top_feature = torch.cat([top_feature, pnfeature1, ptsf1], dim = -1)
+        match_pts = self.pts_mlp(top_feature.transpose(1,2)).transpose(1,2)
+
+        r2, pose_feat = self.dpdn_rotation_estimator(ptsf1, match_pts, pnfeature1, pnfeature1)
+
+        outputs = {
+            'pred_rotation': r2,
+        }
+        return outputs
     def forward(self, inputs):
         # import pdb;pdb.set_trace()
         rgb=inputs['rgb']
