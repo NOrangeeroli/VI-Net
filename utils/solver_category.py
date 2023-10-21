@@ -234,7 +234,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                 # reference_rgb = data['reference_rgb'][0].cuda()
                 with torch.no_grad():
 
-                    test_feature = sim_model.extractor(inputs)
+                    test_feature = sim_model.extractor_retrieve(inputs)
                 test_feature_norm = test_feature/test_feature.norm(dim = 1)[:,None]
                 best_ref_cls = []
                 best_ref_index = []
@@ -296,7 +296,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
 
                 inputs['rotation_label'] = torch.FloatTensor(gt_rotation).cuda()
                 # import pdb;pdb.set_trace()
-                end_points = r_model(inputs)
+                end_points = r_model.inference(inputs)
                 pred_rotation = end_points['pred_rotation']
                 #pred_rotation = pred_rotation@ref_data['rotation_label'].cuda().float()
                 pred_rotation = pred_rotation[:,:,(1,2,0)]
