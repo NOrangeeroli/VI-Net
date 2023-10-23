@@ -9,7 +9,7 @@ import gorilla
 import pickle as pkl
 import numpy as np
 import psutil
-from file_utils import get_open_fds
+# from file_utils import get_open_fds
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     # model
     logger.info("=> loading model ...")
 
-    from VI_Net_trial import Net
+    from VI_Net_category import Net
     sim_model = Net(cfg.resolution, cfg.ds_rate)
     if len(cfg.gpus)>1:
 
