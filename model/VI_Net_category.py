@@ -21,12 +21,12 @@ def plot_pt(pt,index):
     
     plotter.show()
 
-def plot_pt_pair(pt1, pt2,self, match,index, m_index):
+def plot_pt_pair_match(pt1, pt2,self, match,index, m_index):
     import pyvista as pv
     import matplotlib.pyplot as plt
-    cloud1 = pv.PolyData(pt1[index].cpu().numpy())
+    cloud1 = pv.PolyData(pt1[index].detach().cpu().numpy())
     mesh1 = cloud1.delaunay_2d()
-    cloud2 = pv.PolyData(pt2[index].cpu().numpy() +0.5)
+    cloud2 = pv.PolyData(pt2[index].detach().cpu().numpy() +0.5)
     mesh2 = cloud2.delaunay_2d()
 
     m_cloud1 = pv.PolyData(self[index][[m_index]].cpu().numpy())
@@ -39,6 +39,31 @@ def plot_pt_pair(pt1, pt2,self, match,index, m_index):
     plotter.add_mesh(mesh2, color='blue')
     plotter.add_points(m_cloud1, color='red')
     plotter.add_points(m_cloud2, color='red')
+
+
+    _ = plotter.add_axes(box=True)
+    
+    
+    plotter.show()
+
+
+
+def plot_pt_pair(pt1, pt2, index):
+    import pyvista as pv
+    import matplotlib.pyplot as plt
+    cloud1 = pv.PolyData(pt1[index].detach().cpu().numpy())
+    mesh1 = cloud1.delaunay_2d()
+    cloud2 = pv.PolyData(pt2[index].detach().cpu().numpy())
+    mesh2 = cloud2.delaunay_2d()
+
+    # m_cloud1 = pv.PolyData(self[index][[m_index]].cpu().numpy())
+    # m_cloud2 = pv.PolyData(match[index][[m_index]].cpu().numpy() +0.5)
+
+    plotter = pv.Plotter()
+    plotter.add_mesh(mesh1, color='white')
+    plotter.add_mesh(mesh2, color='blue')
+    # plotter.add_points(m_cloud1, color='red')
+    # plotter.add_points(m_cloud2, color='red')
 
 
     _ = plotter.add_axes(box=True)
@@ -455,6 +480,8 @@ class Net(nn.Module):
         pnfeature_global = torch.mean(pnfeature, 1)
         return pnfeature_global
     def inference(self,inputs):
+       
+        pts= inputs['pts']
         rgb1, rgb2 = inputs['rgb'][:,0,:,:], inputs['rgb'][:,1,:,:]
         pts1, pts2 = inputs['pts'][:,0,:,:], inputs['pts'][:,1,:,:]
         b,_,rgb_h,rgb_w,_ = inputs['rgb_raw'].shape
@@ -474,6 +501,9 @@ class Net(nn.Module):
         pts_raw = pts_raw.reshape(b*2,(self.num_patches)**2,-1)[torch.arange(b*2)[:,None], choose.reshape(b*2,match_num),:].reshape(b,2,match_num,-1)
         ptsf1, ptsf2 = pts_raw[:,0], pts_raw[:,1]
         ptsf2 = self.rotate_pts_batch(ptsf2, rotation_ref.transpose(1,2))
+        #DELETE THIS
+        # ptsf2 = torch.zeros_like(ptsf2)
+        # feature2 = torch.zeros_like(feature2)
 
         pnfeature1 = self.get_pnfeature(ptsf1, feature1)
         pnfeature2 = self.get_pnfeature(ptsf2, feature2)
@@ -483,13 +513,32 @@ class Net(nn.Module):
         top_pts = ptsf2[torch.arange(b)[:,None, None], top_index, :]
         top_weights = top_weights[:,:,:,None]
         top_feature = torch.cat([top_feature, top_pts, top_weights], dim = -1).reshape(b, match_num, -1)
+        #DELETE THIS
+        # top_feature = torch.zeros_like(top_feature)
+
         top_feature = torch.cat([top_feature, pnfeature1, ptsf1], dim = -1)
         match_pts = self.pts_mlp(top_feature.transpose(1,2)).transpose(1,2)
+        # import pdb;pdb.set_trace()
+        dis_map, rgb_map= self.feat2smap(pts1, rgb1)
+        _, ref_map = self.feat2smap(ptsf1, torch.cat([ match_pts, pnfeature1],dim = -1))
+        
+        # backbone
+        x = self.spherical_fpn(dis_map, torch.cat([rgb_map,ref_map],dim = 1))
+        
+        # viewpoint rotation
+        vp_rot, rho_prob, phi_prob = self.v_branch(x, inputs)
+        pred_vp_rot = self.v_branch._get_vp_rotation(rho_prob, phi_prob,{})
 
-        r2, pose_feat = self.dpdn_rotation_estimator(ptsf1, match_pts, pnfeature1, pnfeature1)
+        
+        # in-plane rotation
+    
+        
 
+        # x2 = torch.cat([x, torch.tile(pose_feat[:,:,None,None],(1,1,x.shape[2], x.shape[3]))], dim = 1)
+        
+        ip_rot = self.i_branch(x, vp_rot)
         outputs = {
-            'pred_rotation': r2,
+            'pred_rotation': vp_rot@ip_rot,
         }
         return outputs
     def forward(self, inputs):
