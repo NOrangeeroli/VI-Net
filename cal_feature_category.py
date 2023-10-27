@@ -160,7 +160,7 @@ if __name__ == "__main__":
     cls_to_write = torch.concatenate(cls_arrays, axis = 0).numpy()
     to_write = np.concatenate([index_to_write, cls_to_write, feature_to_write], axis = 1)
 
-    save_path = os.path.join(feature_path, cfg.feature.ref_feature_file)
+    save_path = os.path.join(feature_path, cfg.feature.ref_feature_file.replace('.','_' + str(cfg.test_epoch) + '.'))
     invalid_index = np.array(train_dataset.invalid_index)
     #import pdb;pdb.set_trace()
     with open(save_path, 'wb') as f:

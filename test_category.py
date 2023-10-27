@@ -103,7 +103,7 @@ if __name__ == "__main__":
     # logger.info("=> loading SIM-Net checkpoint from path: {} ...".format(checkpoint))
     # gorilla.solver.load_checkpoint(model=sim_model, filename=checkpoint)
 
-    feature_file = os.path.join(BASE_DIR, cfg.feature.feature_path, cfg.feature.ref_feature_file)
+    feature_file = os.path.join(BASE_DIR, cfg.feature.feature_path, cfg.feature.ref_feature_file.replace('.','_' + str(cfg.test_epoch) + '.'))
     
     with open(feature_file, 'rb') as f:
         
