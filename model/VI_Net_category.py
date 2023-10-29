@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import math
 from module import SphericalFPN, V_Branch, I_Branch, I_Branch_Pair
 from extractor_dino import ViTExtractor
 from loss import SigmoidFocalLoss
@@ -489,7 +489,7 @@ class Net(nn.Module):
         # rgb_raw1, rgb_raw2 = rgb_raw.reshape(b,2,rgb_h, rgb_w)
         rotation_ref = inputs['rotation_ref']
         pts2 = self.rotate_pts_batch(pts2, rotation_ref.transpose(1,2))
-        #import pdb;pdb.set_trace()
+        
         feature = self.extract_feature(rgb_raw).reshape(b*2,(self.num_patches)**2,-1)
         _,_,num_sample = inputs['choose'].shape
         match_num = 100
@@ -619,6 +619,25 @@ class Net(nn.Module):
         ptsf2 = ptsf2[ref_index]
         pnfeature2 = pnfeature2[ref_index]
         rotation_ref = inputs['rotation_label'][ref_index]
+
+        #DELETE THIS
+        rotation_ref_t = rotation_ref.transpose(1,2)
+        rotation_label_t =  inputs['rotation_label'].transpose(1,2)
+        rotation_x_angle = torch.arccos(
+            torch.clamp(
+            rotation_ref_t[:,:,0][:,None,:]@rotation_label_t[:,:,0][:,:,None], -1,1)
+            ).mean()*180/math.pi
+        rotation_y_angle = torch.arccos(
+             torch.clamp(
+            rotation_ref_t[:,:,1][:,None,:]@rotation_label_t[:,:,1][:,:,None], -1,1)
+            ).mean()*180/math.pi
+        rotation_z_angle = torch.arccos(
+            torch.clamp(rotation_ref_t[:,:,2][:,None,:]@rotation_label_t[:,:,2][:,:,None], -1,1)
+            ).mean()*180/math.pi
+        if torch.isnan(rotation_y_angle).sum()>0:
+            import pdb;pdb.set_trace()
+
+
         
         #DELETE THIS
         # ptsf2 = ptsf2[batch_index]
@@ -684,7 +703,10 @@ class Net(nn.Module):
             'rotation_ref':rotation_ref,
             'match_pts':match_pts,
             'canonical_pts': canonical_pts,
-            'feature_diff':feature_diff
+            'feature_diff':feature_diff,
+            'rotation_x_angle':rotation_x_angle,
+            'rotation_y_angle': rotation_y_angle,
+            'rotation_z_angle': rotation_z_angle
         }
         return outputs
 
@@ -746,6 +768,9 @@ class Loss(nn.Module):
             'gt_ref_angle': gt_ref_angle.mean(),
             # 'match_thres': pred['thres'].mean(),
             'weights_entropy':pred['weights_entropy'].mean(),
-            'feature_diff': pred['feature_diff'].mean()
+            'feature_diff': pred['feature_diff'].mean(),
+            'rotation_x_angle': pred['rotation_x_angle'],
+            'rotation_y_angle':  pred['rotation_y_angle'],
+            'rotation_z_angle':  pred['rotation_z_angle']
 
         }
