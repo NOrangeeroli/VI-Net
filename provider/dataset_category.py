@@ -758,7 +758,7 @@ class TestDataset():
         #return self._get_pair_random(index)
         ret = self._get_instance(index)
         
-        return self._get_instance(index)
+        return ret
     
     
     def _get_instance(self,index):
@@ -821,6 +821,7 @@ class TestDataset():
 
     def _get_instance_by_image_index(self, index):
         path = self.result_pkl_list[index]
+        # print(path)
         ret_dict = self._get_instance_by_path(path)
         if ret_dict is None:
             return None
@@ -830,8 +831,9 @@ class TestDataset():
     def _get_instance_by_path(self, path, instance_id=-1):
         with open(path, 'rb') as f:
             pred_data = cPickle.load(f)
-
+        
         image_path = os.path.join(self.data_dir, pred_data['image_path'][5:])
+        # print(image_path)
         pred_mask = pred_data['pred_masks']
         num_instance = len(pred_data['pred_class_ids'])
         assert instance_id<= num_instance-1
@@ -876,6 +878,7 @@ class TestDataset():
                     cat_id = pred_data['pred_class_ids'][j] - 1 # convert to 0-indexed
 
                     pts_raw = pts[rmin:rmax, cmin:cmax, :]
+                    
                     rgb_raw = rgb[rmin:rmax, cmin:cmax, :]
                     mask = mask[rmin:rmax, cmin:cmax]
                     choose = mask.flatten().nonzero()[0]
