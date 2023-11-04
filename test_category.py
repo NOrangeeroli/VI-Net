@@ -139,5 +139,9 @@ if __name__ == "__main__":
             shuffle=False,
             drop_last=False
         )
-    test_func(ts_model, r_model, sim_model, dataloder,ref_feature, cfg.save_path)
-    evaluate(cfg.save_path, logger)
+    save_path = cfg.save_path + 'VI_Net_category/epoch_' + str(cfg.test_epoch) 
+
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path)
+        test_func(ts_model, r_model, sim_model, dataloder,ref_feature, save_path)
+    evaluate(save_path, logger)

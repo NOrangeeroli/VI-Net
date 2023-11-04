@@ -217,6 +217,7 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
                     'mask': data['mask'][0].cuda(),
                     'pts_raw': data['pts_raw'][0].cuda(),
                     'category_label': data['category_label'][0].cuda(),
+                    'center': data['center'][0].cuda(),
                     
                 }
                 end_points = ts_model(inputs)
@@ -282,7 +283,6 @@ def test_func(ts_model, r_model, sim_model, dataloder, refs, save_path):
 
                 
                 inputs['pts'] = torch.stack([inputs['pts'], reference_pts],dim = 1).float()
-
                 inputs['rgb'] = torch.stack([inputs['rgb'], reference_rgb],dim = 1).float()
                 inputs['rgb_raw'] = torch.stack([inputs['rgb_raw'], reference_rgb_raw],dim = 1).float()
                 inputs['pts_raw'] = torch.stack([inputs['pts_raw'], reference_pts_raw],dim = 1).float()

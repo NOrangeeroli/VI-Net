@@ -2,7 +2,7 @@ import torch
 import math
 
 
-def angle_of_rotation(rotation_matrix):
+def angle_of_rotation(rotation_matrix, return_cos = False):
     size = rotation_matrix.shape
     assert len(size) == 3
     assert size[1] == size[2]
@@ -11,7 +11,10 @@ def angle_of_rotation(rotation_matrix):
     assert cos.abs().mean()<1.0001
     cos = torch.clip(cos, -1,1)
     angle = torch.arccos(cos)*180/math.pi
-    return angle
+    if return_cos:
+        return angle, cos
+    else:
+        return angle
 
 def normalize_vector( v, dim =1, return_mag =False):
     v_mag = torch.sqrt(v.pow(2).sum(dim=dim, keepdim=True))# batch

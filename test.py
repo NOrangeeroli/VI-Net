@@ -15,8 +15,8 @@ sys.path.append(os.path.join(BASE_DIR, 'utils'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'sphericalmap_utils'))
 sys.path.append(os.path.join(BASE_DIR, 'lib', 'pointnet2'))
 
-from solver import test_func, get_logger
-from dataset_pair import TestDataset, TrainingDataset
+from solver_old import test_func, get_logger
+from dataset import TestDataset, TrainingDataset
 from evaluation_utils import evaluate
 
 def get_parser():
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     logger.info("=> loading model ...")
     from PN2 import Net
     ts_model = Net(cfg.n_cls)
-    from VI_Net_match import Net
+    from VI_Net import Net
     r_model = Net(cfg.resolution, cfg.ds_rate)
     from SIM_Net import Net
     sim_model = Net(cfg.resolution, cfg.ds_rate)
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     # )
     
 
-    dataset = TestDataset(cfg.test, cfg.dataset, cfg.resolution, cfg.ds_rate)
+    dataset = TestDataset(cfg.test, cfg.dataset)
     dataloder = torch.utils.data.DataLoader(
             dataset,
             batch_size=1,
@@ -139,5 +139,9 @@ if __name__ == "__main__":
             shuffle=False,
             drop_last=False
         )
-    test_func(ts_model, r_model, sim_model, dataloder,ref_feature, cfg.save_path)
-    evaluate(cfg.save_path, logger)
+    save_path = cfg.save_path + '/VI_Net/epoch_' + str(cfg.test_epoch) 
+
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path)
+        test_func(ts_model, r_model, dataloder, save_path)
+    evaluate(save_path, logger)

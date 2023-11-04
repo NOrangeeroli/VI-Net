@@ -3,7 +3,7 @@ n_cls: 6
 resolution: 64
 ds_rate: 2
 mode: epoch
-max_epoch : 10
+max_epoch : 60
 num_mini_batch_per_epoch: 5000
 num_patches: 15
 

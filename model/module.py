@@ -336,6 +336,56 @@ class SphericalFPN(nn.Module):
         return y
 
 
+class SphericalFPNL(nn.Module):
+    def __init__(self, dim_in1=1, dim_in2_list=[3], type='spa_sconv', ds_rate=2):
+        super(SphericalFPNL, self).__init__()
+        self.ds_rate = ds_rate
+        assert ds_rate in [1,2,4]
+        self.encoder1 = ResNet(BasicBlock, dim_in1, [2, 2, 2, 2], type=type)
+        self.encoder2 = []
+        for dim_in2 in dim_in2_list:
+            self.encoder2.append(ResNet(BasicBlock, dim_in2, [2, 2, 2, 2], type=type).cuda())
+        self.FPN = FPN(dim_in=[128,256,256], mode='bilinear', type=type, ds_rate=ds_rate)
+
+        if ds_rate in [1,2]:
+            self.conv1 = conv3x3(64*(1+len(dim_in2_list)), 128, stride=1, type=type)
+            self.bn1 = nn.BatchNorm2d(128)
+        self.conv2 = conv3x3(128*(1+len(dim_in2_list)), 256, stride=1, type=type)
+        self.bn2 = nn.BatchNorm2d(256)
+        self.conv3 = conv3x3(256*(1+len(dim_in2_list)), 256, stride=1, type=type)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.relu = nn.ReLU(inplace=True)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x1, x2_list):
+        y11,y21,y31 = self.encoder1(x1)
+        y12_list = []
+        y22_list = []
+        y32_list = []
+        for x2, encoder2 in zip(x2_list, self.encoder2):
+            y12,y22,y32 = encoder2(x2)
+            y12_list.append(y12)
+            y22_list.append(y22)
+            y32_list.append(y32)
+        y12 = torch.cat(y12_list,1)
+        y22 = torch.cat(y22_list,1)
+        y32 = torch.cat(y32_list,1)
+        if self.ds_rate in [1,2]:
+            y1 = self.relu(self.bn1(self.conv1(torch.cat([y11,y12],1))))
+        else:
+            y1 = None
+        y2 = self.relu(self.bn2(self.conv2(torch.cat([y21,y22],1))))
+        y3 = self.relu(self.bn3(self.conv3(torch.cat([y31,y32],1))))
+        y = self.FPN(y1,y2,y3)
+        return y
+
 class V_Branch(nn.Module):
     def __init__(self, in_dim=256, ncls=1, resolution=32):
         super(V_Branch, self).__init__()

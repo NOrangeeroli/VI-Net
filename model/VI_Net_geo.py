@@ -618,7 +618,7 @@ class Net(nn.Module):
         ptsg = pts1[:, :300, :]
         # import pdb;pdb.set_trace()
         with torch.no_grad():
-            normals = self.cal_normal(ptsg, torch.eye(3)[None,:,:].repeat(ptsg.shape[0],1,1).cuda(), inputs['translation'], inputs['size'])
+            normals = self.cal_normal(ptsg, torch.eye(3)[None,:,:].repeat(ptsg.shape[0],1,1).cuda(), inputs['center'] + inputs['translation'], inputs['size'])
             ppf_feature = self.calc_ppf(ptsg, normals)
         
         dis_map, rgb_map= self.feat2smap(pts1, rgb1)

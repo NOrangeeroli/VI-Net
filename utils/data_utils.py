@@ -116,7 +116,7 @@ def get_bbox_from_mask(label, img_width = 480, img_length = 640):
     return rmin, rmax, cmin, cmax
 
 
-def random_rotate(points, rotation, translation=None, angle_range=None):
+def random_rotate(points, rotation, translation=None, angle_range=None, return_rand_rotation = False):
     '''
     points: N*3
     rotation: 3*3
@@ -153,7 +153,10 @@ def random_rotate(points, rotation, translation=None, angle_range=None):
     new_points = points @ new_rotation.T
     if translation is not None:
         new_points = new_points + translation[None, :]
-    return new_points, new_rotation
+    if return_rand_rotation:
+        return new_points, new_rotation, rand_rotation
+    else:
+        return new_points, new_rotation
 
 def random_scale(points, size, rotation=None, translation=None, max=1.2, min=0.8):
     '''

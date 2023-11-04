@@ -299,7 +299,7 @@ class TrainingDataset(Dataset):
         pts, rgb, translation, \
         rotation, size, cat_id, asym_flag, \
         rmin, rmax, cmin, cmax, choose, \
-            rgb_raw, pts_raw, mask= tuple
+            rgb_raw, pts_raw, mask, rand_rotation= tuple
 
 
         v = rotation[:,2] / (np.linalg.norm(rotation[:,2])+1e-8)
@@ -347,6 +347,7 @@ class TrainingDataset(Dataset):
         ret_dict['phi_label'] = torch.IntTensor([phi_label]).long()
         ret_dict['vp_rotation_label'] = torch.FloatTensor(vp_rotation)
         ret_dict['ip_rotation_label'] = torch.FloatTensor(ip_rotation)
+        ret_dict['rand_rotation'] = torch.FloatTensor(rand_rotation)
         return ret_dict
         
 
@@ -539,8 +540,9 @@ class TrainingDataset(Dataset):
 
 
         if hasattr(self.config, 'random_rotate') and self.config.random_rotate and not without_noise:
-            pts_raw, rotation = random_rotate(pts_raw, rotation, translation, self.config.angle_range)
-        
+            pts_raw, rotation, rand_rotation = random_rotate(pts_raw, rotation, translation, self.config.angle_range, return_rand_rotation = True)
+        else:
+            rand_rotation = np.eye(3)
         if self.mode == 'ts':
             pts = pts_raw[choose]
             
@@ -605,7 +607,7 @@ class TrainingDataset(Dataset):
 
 
             return pts, rgb, translation, rotation, size, cat_id, asym_flag, \
-                rmin, rmax, cmin, cmax, choose, rgb_raw.copy(), pts_raw.copy(), mask.copy() 
+                rmin, rmax, cmin, cmax, choose, rgb_raw.copy(), pts_raw.copy(), mask.copy() , rand_rotation
         else: 
             assert False
 
@@ -656,7 +658,7 @@ class TrainingDataset(Dataset):
 
         
         pts, rgb, translation, rotation, size, cat_id, asym_flag, \
-                rmin, rmax, cmin, cmax, choose, rgb_raw, pts_raw, mask = tuple_instance
+                rmin, rmax, cmin, cmax, choose, rgb_raw, pts_raw, mask, rand_rotation = tuple_instance
         
         ret_dict = {}
         ret_dict['pts'] = torch.FloatTensor(pts)
@@ -943,6 +945,7 @@ class TestDataset():
 
             else:
                 ret_dict['pts'] = torch.stack(all_pts) # N*3
+                ret_dict['rand_rotation'] = torch.eye(3)[None,:,:].repeat(ret_dict['pts'].shape[0],1,1)
                 ret_dict['rgb'] = torch.stack(all_rgb)
                 ret_dict['pts_raw'] = torch.stack(all_pts_raw) # N*3
                 ret_dict['rgb_raw'] = torch.stack(all_rgb_raw)
