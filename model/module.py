@@ -295,7 +295,63 @@ class FPN(nn.Module):
                 x1 = self.up(x1)
 
             return x1
-        
+
+
+
+
+class FPN_Adaptive(nn.Module):
+    def __init__(self, dim_in=[64,128,256], out_dim=256, mode='nearest', align_corners=True, type='spa_sconv', ds_rate=2):
+        super(FPN_Adaptive, self).__init__()
+        self.ds_rate = ds_rate
+        self.conv1 = conv3x3(dim_in[0], out_dim, stride=1, type=type)
+        self.bn1 = nn.BatchNorm2d(out_dim)
+
+        self.conv2 = conv3x3(dim_in[1], out_dim, stride=1, type=type)
+        self.bn2 = nn.BatchNorm2d(out_dim)
+
+        self.conv3 = conv3x3(dim_in[2], out_dim, stride=1, type=type)
+        self.bn3 = nn.BatchNorm2d(out_dim)
+
+        self.conv4 = conv3x3(out_dim, out_dim, stride=1, type=type)
+        self.bn4 = nn.BatchNorm2d(out_dim)
+
+        self.relu = nn.ReLU(inplace=True)
+
+        if mode == 'nearest':
+            self.up = nn.Upsample(scale_factor=2, mode=mode)
+        else:
+            self.up = nn.Upsample(scale_factor=2, mode=mode, align_corners=align_corners)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+    def forward(self, x1, x2, x3):
+
+        x3 = self.up(x3)
+        x3 = self.bn3(self.conv3(x3))
+        x2 = self.bn2(self.conv2(x2))
+        x2 = self.relu(x2+x3)
+
+        if self.ds_rate == 4:
+            return x2
+        else:
+            x2 = self.up(x2)
+            x1 = self.bn1(self.conv1(x1))
+            x1 = self.relu(x1+x2)
+
+            x1 = self.relu(self.bn4(self.conv4(x1)))
+
+            if self.ds_rate == 1:
+                x1 = self.up(x1)
+
+            return x1
+  
 
 class SphericalFPN(nn.Module):
     def __init__(self, dim_in1=1, dim_in2=3, type='spa_sconv', ds_rate=2):
@@ -314,7 +370,7 @@ class SphericalFPN(nn.Module):
         self.conv3 = conv3x3(256*2, 256, stride=1, type=type)
         self.bn3 = nn.BatchNorm2d(256)
         self.relu = nn.ReLU(inplace=True)
-
+        
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -326,6 +382,7 @@ class SphericalFPN(nn.Module):
     def forward(self, x1, x2):
         y11,y21,y31 = self.encoder1(x1)
         y12,y22,y32 = self.encoder2(x2)
+        # import pdb;pdb.set_trace()
         if self.ds_rate in [1,2]:
             y1 = self.relu(self.bn1(self.conv1(torch.cat([y11,y12],1))))
         else:
@@ -334,6 +391,94 @@ class SphericalFPN(nn.Module):
         y3 = self.relu(self.bn3(self.conv3(torch.cat([y31,y32],1))))
         y = self.FPN(y1,y2,y3)
         return y
+
+
+class SphericalFPN3(nn.Module):
+    def __init__(self, dim_in1=1, dim_in2 = 3, dim_in3 = 384,type='spa_sconv', ds_rate=2):
+        super(SphericalFPN3, self).__init__()
+        self.ds_rate = ds_rate
+        assert ds_rate in [1,2,4]
+        self.encoder1 = ResNet(BasicBlock, dim_in1, [2, 2, 2, 2], type=type)
+        self.encoder2 = ResNet(BasicBlock, dim_in2, [2, 2, 2, 2], type=type)
+        self.encoder3 = ResNet(BasicBlock, dim_in3, [2, 2, 2, 2], type=type)
+        
+        self.FPN = FPN(dim_in=[128,256,256], mode='bilinear', type=type, ds_rate=ds_rate)
+
+        if ds_rate in [1,2]:
+            self.conv1 = conv3x3(64*3, 128, stride=1, type=type)
+            self.bn1 = nn.BatchNorm2d(128)
+        self.conv2 = conv3x3(128*3, 256, stride=1, type=type)
+        self.bn2 = nn.BatchNorm2d(256)
+        self.conv3 = conv3x3(256*3, 256, stride=1, type=type)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.relu = nn.ReLU(inplace=True)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x1, x2, x3):
+        y11,y21,y31 = self.encoder1(x1)
+        y12,y22,y32 = self.encoder2(x2)
+        y13,y23,y33 = self.encoder3(x3) 
+        # import pdb;pdb.set_trace()
+        if self.ds_rate in [1,2]:
+            y1 = self.relu(self.bn1(self.conv1(torch.cat([y11,y12, y13],1))))
+        else:
+            y1 = None
+        y2 = self.relu(self.bn2(self.conv2(torch.cat([y21,y22, y23],1))))
+        y3 = self.relu(self.bn3(self.conv3(torch.cat([y31,y32, y33],1))))
+        y = self.FPN(y1,y2,y3)
+        return y
+
+class SphericalFPN4(nn.Module):
+    def __init__(self, dim_in1=1, dim_in2 = 3, dim_in3 = 384, dim_in4 = 4,type='spa_sconv', ds_rate=2):
+        super(SphericalFPN4, self).__init__()
+        self.ds_rate = ds_rate
+        assert ds_rate in [1,2,4]
+        self.encoder1 = ResNet(BasicBlock, dim_in1, [2, 2, 2, 2], type=type)
+        self.encoder2 = ResNet(BasicBlock, dim_in2, [2, 2, 2, 2], type=type)
+        self.encoder3 = ResNet(BasicBlock, dim_in3, [2, 2, 2, 2], type=type)
+        self.encoder4 = ResNet(BasicBlock, dim_in4, [2, 2, 2, 2], type=type)
+        
+        self.FPN = FPN(dim_in=[128,256,256], mode='bilinear', type=type, ds_rate=ds_rate)
+
+        if ds_rate in [1,2]:
+            self.conv1 = conv3x3(64*4, 128, stride=1, type=type)
+            self.bn1 = nn.BatchNorm2d(128)
+        self.conv2 = conv3x3(128*4, 256, stride=1, type=type)
+        self.bn2 = nn.BatchNorm2d(256)
+        self.conv3 = conv3x3(256*4, 256, stride=1, type=type)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.relu = nn.ReLU(inplace=True)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x1, x2, x3, x4):
+        y11,y21,y31 = self.encoder1(x1)
+        y12,y22,y32 = self.encoder2(x2)
+        y13,y23,y33 = self.encoder3(x3) 
+        y14,y24,y34 = self.encoder4(x4)
+        # import pdb;pdb.set_trace()
+        if self.ds_rate in [1,2]:
+            y1 = self.relu(self.bn1(self.conv1(torch.cat([y11,y12, y13, y14],1))))
+        else:
+            y1 = None
+        y2 = self.relu(self.bn2(self.conv2(torch.cat([y21,y22, y23, y24],1))))
+        y3 = self.relu(self.bn3(self.conv3(torch.cat([y31,y32, y33, y34],1))))
+        y = self.FPN(y1,y2,y3)
+        return y
+
 
 
 class SphericalFPNL(nn.Module):
@@ -354,6 +499,59 @@ class SphericalFPNL(nn.Module):
         self.bn2 = nn.BatchNorm2d(256)
         self.conv3 = conv3x3(256*(1+len(dim_in2_list)), 256, stride=1, type=type)
         self.bn3 = nn.BatchNorm2d(256)
+        self.relu = nn.ReLU(inplace=True)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x1, x2_list):
+        y11,y21,y31 = self.encoder1(x1)
+        y12_list = []
+        y22_list = []
+        y32_list = []
+        for x2, encoder2 in zip(x2_list, self.encoder2):
+            y12,y22,y32 = encoder2(x2)
+            y12_list.append(y12)
+            y22_list.append(y22)
+            y32_list.append(y32)
+        y12 = torch.cat(y12_list,1)
+        y22 = torch.cat(y22_list,1)
+        y32 = torch.cat(y32_list,1)
+        # import pdb;pdb.set_trace()
+        if self.ds_rate in [1,2]:
+            y1 = self.relu(self.bn1(self.conv1(torch.cat([y11,y12],1))))
+        else:
+            y1 = None
+        y2 = self.relu(self.bn2(self.conv2(torch.cat([y21,y22],1))))
+        y3 = self.relu(self.bn3(self.conv3(torch.cat([y31,y32],1))))
+        y = self.FPN(y1,y2,y3)
+        return y
+
+
+
+class SphericalFPNL_Adaptive(nn.Module):
+    def __init__(self, dim_in1=1, dim_in2_list=[3], type='spa_sconv', ds_rate=2):
+        super(SphericalFPNL_Adaptive, self).__init__()
+        self.ds_rate = ds_rate
+        assert ds_rate in [1,2,4]
+        self.encoder1 = ResNet(BasicBlock, dim_in1, [2, 2, 2, 2], type=type)
+        self.encoder2 = []
+        for dim_in2 in dim_in2_list:
+            self.encoder2.append(ResNet(BasicBlock, dim_in2, [2, 2, 2, 2], type=type).cuda())
+        self.FPN = FPN_Adaptive(dim_in=[64*(1+len(dim_in2_list)),128*(1+len(dim_in2_list)),256*(1+len(dim_in2_list))], mode='bilinear', type=type, ds_rate=ds_rate)
+
+        if ds_rate in [1,2]:
+            self.conv1 = conv3x3(64*(1+len(dim_in2_list)), 64*(1+len(dim_in2_list)), stride=1, type=type)
+            self.bn1 = nn.BatchNorm2d(64*(1+len(dim_in2_list)))
+        self.conv2 = conv3x3(128*(1+len(dim_in2_list)), 128*(1+len(dim_in2_list)), stride=1, type=type)
+        self.bn2 = nn.BatchNorm2d(128*(1+len(dim_in2_list)))
+        self.conv3 = conv3x3(256*(1+len(dim_in2_list)), 256*(1+len(dim_in2_list)), stride=1, type=type)
+        self.bn3 = nn.BatchNorm2d(256*(1+len(dim_in2_list)))
         self.relu = nn.ReLU(inplace=True)
 
         for m in self.modules():
