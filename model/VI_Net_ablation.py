@@ -520,7 +520,7 @@ class Net(nn.Module):
         match_pts = self.pts_mlp(top_feature.transpose(1,2)).transpose(1,2)
         # import pdb;pdb.set_trace()
         dis_map, rgb_map= self.feat2smap(pts1, rgb1)
-        _, ref_map = self.feat2smap(ptsf1, torch.cat([ match_pts, pnfeature1],dim = -1))
+        _, ref_map = self.feat2smap(ptsf1, feature1)
         
         # backbone
         x = self.spherical_fpn(dis_map, torch.cat([rgb_map,ref_map],dim = 1))
